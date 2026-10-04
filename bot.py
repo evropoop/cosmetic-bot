@@ -15,6 +15,7 @@ from aiogram.types import (
 from dotenv import load_dotenv
 
 import database as db
+from ai_analyzer import analyze_composition
 
 # ================== ЗАГРУЗКА ПЕРЕМЕННЫХ ==================
 load_dotenv()
@@ -51,7 +52,7 @@ def get_main_keyboard():
 
 def get_subscription_keyboard():
     buttons = [
-        [InlineKeyboardButton(text="💳 Оплатить подписку — 1000₽/мес", callback_data="pay_subscription")],
+        [InlineKeyboardButton(text="💳 Оплатить подписку — 1000 ₽/мес", callback_data="pay_subscription")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -92,9 +93,9 @@ SURVEY_QUESTIONS = [
         "multi": False,
     },
     {
-        "text": "Вопрос 3. Как ведет себя кожа к середине дня?",
+        "text": "Вопрос 3. Как ведёт себя кожа к середине дня?",
         "options": [
-            ("Остается нормальной", None),
+            ("Остаётся нормальной", None),
             ("Блеск только в Т-зоне", None),
             ("Сильно блестит всё лицо", "fat_compensatory"),
             ("Кожа сохнет, макияж проваливается", "barrier_broken"),
@@ -133,7 +134,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
     await message.answer(
         "Привет! Я — твой личный химик-аналитик. 🧪\n\n"
-        "Прежде чем мы начнем зачистку твоей косметички от агрессоров и пустышек, "
+        "Прежде чем мы начнём зачистку твоей косметички от агрессоров и пустышек, "
         "мне нужно понять, с чем мы работаем.\n\n"
         "Прокликай 5 быстрых вопросов ниже. Погнали? 👇"
     )
@@ -203,7 +204,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.delete()
         await send_question(callback.message, state)
     else:
-        await callback.answer("Добавлено! Выбери ещё или нажми 'Готово'.")
+        await callback.answer("Добавлено! Выбери ещё или нажми «Готово».")
         return
 
     await callback.answer()
@@ -224,13 +225,13 @@ async def finish_survey(message: types.Message, state: FSMContext):
         diagnosis += "— Твой липидный барьер разрушен. Кожа не держит влагу, поэтому её так сильно стягивает после умывания. Ты буквально умываешься «до скрипа», смывая собственный иммунитет.\n\n"
 
     if "fat_compensatory" in tags or ("fat" in tags and "barrier_broken" in tags):
-        diagnosis += "— Тот жирный блеск, который появляется днём — это не «жирная кожа», это паника твоего организма. Кожа пересушена и пытается защитить себя единственным доступным способом — заливая лицо себумом.\n\n"
+        diagnosis += "— Тот жирный блеск, который появляется днём, — это не «жирная кожа», это паника твоего организма. Кожа пересушена и пытается защитить себя единственным доступным способом — заливая лицо себумом.\n\n"
 
     if "reactive" in tags:
         diagnosis += "— Лицо оголено и реактивно. Сейчас кожа воспринимает любую агрессивную отдушку или актив как соль на открытую рану.\n\n"
 
     if "problem" in tags:
-        diagnosis += "— Плюс есть склонность к высыпаниям и забитым порам, так что тяжелые масла и дешевые воски нам сейчас категорически противопоказаны.\n\n"
+        diagnosis += "— Плюс есть склонность к высыпаниям и забитым порам, так что тяжёлые масла и дешёвые воски нам сейчас категорически противопоказаны.\n\n"
 
     if "medicine" in tags or "pregnancy" in tags:
         diagnosis += "— Вижу, что в ходу мощные аптечные активы или есть диагноз. Моя задача сейчас — подобрать тебе такую базу, которая успокоит этот пожар и не будет мешать лечению у врача.\n\n"
@@ -249,13 +250,12 @@ async def finish_survey(message: types.Message, state: FSMContext):
     await state.set_state(Form.waiting_for_composition)
 
 
-# ================== ПРИЁМ СОСТАВА (ЗАГЛУШКА) ==================
+# ================== ПРИЁМ СОСТАВА + АНАЛИЗ ИИ ==================
 @dp.message(StateFilter(Form.waiting_for_composition))
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
 
-    # Игнорируем нажатия на кнопки меню
     if message.text in ["📋 Моя подписка", "🆘 Помощь"]:
         if message.text == "📋 Моя подписка":
             await my_subscription(message)
@@ -268,17 +268,59 @@ async def process_composition(message: types.Message, state: FSMContext):
             "Демо-доступ закрыт. Мы проверили 2 средства, но это только верхушка айсберга.\n\n"
             "Хочешь разобрать всю косметичку, перестать сливать деньги на пустышки "
             "и задавать вопросы по уходу 24/7?\n\n"
-            "Подписка стоит 1000₽/мес. Оформляй и сканируй составы безлимитно!",
+            "Подписка стоит 1000 ₽/мес. Оформляй и сканируй составы безлимитно!",
             reply_markup=get_subscription_keyboard()
         )
         return
 
-    # Здесь будет ИИ
-    await message.answer(
-        "🔧 Анализ состава будет добавлен на следующем этапе.\n\n"
-        f"У тебя осталось {user['free_checks']} бесплатных проверок."
-    )
-    db.decrement_free_checks(user_id)
+    composition = message.text
+    tags = user.get("tags", [])
+
+    await message.answer("🔬 Анализирую состав... Это займёт 10–15 секунд.")
+
+    try:
+        result = await analyze_composition(composition, tags)
+        verdict = result["verdict"]
+        status = result["status"]
+
+        db.save_analysis(user_id, composition, verdict, status)
+
+        if status == "bad":
+            db.increment_bad_bottles(user_id)
+        else:
+            db.reset_bad_bottles(user_id)
+
+        if not db.has_active_subscription(user_id):
+            db.decrement_free_checks(user_id)
+            remaining = db.get_free_checks(user_id)
+            await message.answer(verdict)
+            if remaining > 0:
+                await message.answer(f"Осталось бесплатных проверок: {remaining}")
+            else:
+                await message.answer(
+                    "Это была твоя последняя бесплатная проверка.\n\n"
+                    "Хочешь безлимит? Оформляй подписку за 1000 ₽/мес:",
+                    reply_markup=get_subscription_keyboard()
+                )
+        else:
+            await message.answer(verdict)
+
+        bad_count = db.get_bad_bottles_count(user_id)
+        if bad_count >= 3:
+            await message.answer(
+                "Слушай, твоя база просто трещит по швам. Мы забраковали уже третью банку подряд.\n\n"
+                "Продолжать мазать это на лицо — значит методично уничтожать кожу. "
+                "Тут не обойтись заменой одной умывалки, нам нужно менять фундамент.\n\n"
+                "Нужна помощь Марии в подборе полноценного физиологичного протокола?",
+                reply_markup=get_lead_keyboard()
+            )
+            db.reset_bad_bottles(user_id)
+
+    except Exception as e:
+        logger.error(f"Ошибка анализа: {e}")
+        await message.answer(
+            "❌ Ошибка при анализе. Попробуйте позже или свяжитесь с @miroslavskayaboks"
+        )
 
 
 # ================== МОЯ ПОДПИСКА ==================
@@ -290,7 +332,7 @@ async def my_subscription(message: types.Message):
     if not sub or sub["expires_at"] <= datetime.now():
         await message.answer(
             "❌ У вас нет активной подписки.\n\n"
-            "Оформите подписку за 1000₽/мес и сканируйте составы безлимитно:",
+            "Оформите подписку за 1000 ₽/мес и сканируйте составы безлимитно:",
             reply_markup=get_subscription_keyboard()
         )
     else:
@@ -314,7 +356,6 @@ async def help_text(message: types.Message):
 
 # ================== ЗАПУСК ==================
 async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
     logger.info("🚀 Бот запущен!")
     await dp.start_polling(bot)
 
