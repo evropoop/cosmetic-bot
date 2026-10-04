@@ -252,7 +252,3 @@ def save_lead(user_id: int, username: str, tags: list, photos: list):
     )
     conn.commit()
     conn.close()
-
-
-if __name__ == "__main__":
-    init_db()
