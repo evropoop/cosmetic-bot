@@ -23,6 +23,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 
+# ===== БЕЗЛИМИТНЫЕ ID =====
+UNLIMITED_IDS = [MARIYA_ID, 1962088357]  # Мария + твой ID
+
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
 
@@ -256,6 +259,7 @@ async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
 
+    # Игнорируем нажатия на кнопки меню
     if message.text in ["📋 Моя подписка", "🆘 Помощь"]:
         if message.text == "📋 Моя подписка":
             await my_subscription(message)
@@ -263,7 +267,11 @@ async def process_composition(message: types.Message, state: FSMContext):
             await help_text(message)
         return
 
-    if user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
+    # ===== БЕЗЛИМИТ ДЛЯ МАРИИ И ТЕБЯ =====
+    is_unlimited = (user_id in UNLIMITED_IDS)
+
+    # Проверка лимита (только для обычных пользователей)
+    if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
             "Демо-доступ закрыт. Мы проверили 2 средства, но это только верхушка айсберга.\n\n"
             "Хочешь разобрать всю косметичку, перестать сливать деньги на пустышки "
@@ -290,6 +298,13 @@ async def process_composition(message: types.Message, state: FSMContext):
         else:
             db.reset_bad_bottles(user_id)
 
+        # ===== ДЛЯ БЕЗЛИМИТНЫХ — БЕЗ СЧЁТЧИКОВ И PAYWALL =====
+        if is_unlimited:
+            await message.answer(verdict)
+            await message.answer("👑 Режим безлимита: проверок не ограничено.")
+            return
+
+        # Обычные пользователи
         if not db.has_active_subscription(user_id):
             db.decrement_free_checks(user_id)
             remaining = db.get_free_checks(user_id)
@@ -305,6 +320,7 @@ async def process_composition(message: types.Message, state: FSMContext):
         else:
             await message.answer(verdict)
 
+        # Триггер «Кладбище банок» (только для обычных)
         bad_count = db.get_bad_bottles_count(user_id)
         if bad_count >= 3:
             await message.answer(
