@@ -10,13 +10,12 @@ client = AsyncOpenAI(
 )
 
 
-# КОРОТКИЙ системный промпт — экономит токены на входе
 SYSTEM_PROMPT = """Ты — дерзкий химик-аналитик косметики. Анализируй INCI-составы и защищай кожу клиента.
 
 ПРАВИЛА:
-- Тон: на "ты", дерзко, с метафорами. Максимум 3-4 абзаца.
+- Тон: на «ты», дерзко, с метафорами. Максимум 3–4 абзаца.
 - НИКОГДА не советуй бренды. Только бракуй или одобряй присланное.
-- НИКОГДА не лечи болезни (СПКЯ, акне 3-4 ст., розацеа, дерматит). Это к врачу.
+- НИКОГДА не лечи болезни (СПКЯ, акне 3–4 ст., розацеа, дерматит). Это к врачу.
 
 МАТРИЦА (по тегам клиента):
 - [barrier_broken]: запрещай кислоты, скрабы, спиртовые тоники.
@@ -36,11 +35,11 @@ SYSTEM_PROMPT = """Ты — дерзкий химик-аналитик косм�
 - Niacinamide, Bakuchiol, Peptides
 
 🟡 ЗАВИСИТ от тегов:
-- Retinol, Азелаиновая, AHA/BHA, Vit C: если [barrier_broken] или [reactive] → ❌
+- Retinol, азелаиновая кислота, AHA/BHA, витамин C: если [barrier_broken] или [reactive] → ❌
 - Эфирные масла и отдушки: если [reactive] → ❌
 - Octocrylene, Oxybenzone: если [reactive] или [problem] → ❌
 
-🟠 КОНФЛИКТ: церамиды + PEG-эмульгатор (PEG-100 Stearate, Ceteareth-20) → ❌ ("эффект вымывания")
+🟠 КОНФЛИКТ: церамиды + PEG-эмульгатор (PEG-100 Stearate, Ceteareth-20) → ❌ («эффект вымывания»)
 
 ⚪ ПУСТЫШКА: только Water, Glycerin, Butylene Glycol → ⚪ НЕ НАВРЕДИТ, НО НЕ ПОМОЖЕТ
 
@@ -48,18 +47,14 @@ SYSTEM_PROMPT = """Ты — дерзкий химик-аналитик косм�
 
 ФОРМАТ ОТВЕТА:
 1. Вердикт: ❌ УБИРАЕМ / ✅ ОСТАВЛЯЕМ / ⚪ НЕ НАВРЕДИТ / 🟡 НА УСМОТРЕНИЕ
-2. Короткое объяснение (2-3 абзаца, дерзко, без воды)
+2. Короткое объяснение (2–3 абзаца, дерзко, без воды)
 """
 
 
 async def analyze_composition(composition: str, tags: list) -> dict:
-    """
-    Отправляет состав в OpenAI и возвращает вердикт.
-    Возвращает: {"verdict": str, "status": str}
-    """
+    """Отправляет состав в Polza.ai и возвращает вердикт."""
     tags_str = ", ".join(tags) if tags else "нет тегов"
 
-    # Ограничиваем длину состава (максимум 2000 символов)
     if len(composition) > 2000:
         composition = composition[:2000] + "..."
 
@@ -67,7 +62,7 @@ async def analyze_composition(composition: str, tags: list) -> dict:
 
 Состав: {composition}
 
-Выдай вердикт строго по формату (вердикт + 2-3 абзаца объяснения)."""
+Выдай вердикт строго по формату (вердикт + 2–3 абзаца объяснения)."""
 
     response = await client.chat.completions.create(
         model="openai/gpt-4o-mini",
@@ -76,11 +71,7 @@ async def analyze_composition(composition: str, tags: list) -> dict:
             {"role": "user", "content": user_prompt}
         ],
         temperature=0.7,
-        max_tokens=500,  # ← Уменьшили с 800 до 500
-        extra_headers={
-            "HTTP-Referer": "https://t.me/MiroslavskayaChemBot",
-            "X-Title": "Miroslavskaya Chem Bot"
-        }
+        max_tokens=500,
     )
 
     result = response.choices[0].message.content
