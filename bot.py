@@ -155,7 +155,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     db.get_or_create_user(user_id, username)
 
-    # TODO: здесь будет кружочек Марии
     await message.answer(
         "👋 Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇",
         reply_markup=get_start_keyboard()
@@ -196,7 +195,7 @@ async def process_name(message: types.Message, state: FSMContext):
     await send_question(message, state)
 
 
-# ================== АНКЕТА ==================
+# ================== АНКЕТА (С ЦИФРАМИ НА КНОПКАХ) ==================
 async def send_question(message: types.Message, state: FSMContext):
     data = await state.get_data()
     step = data.get("survey_step", 0)
@@ -206,15 +205,33 @@ async def send_question(message: types.Message, state: FSMContext):
         return
 
     q = SURVEY_QUESTIONS[step]
+
+    # Формируем текст сообщения со всеми вариантами
+    text = q["text"] + "\n\n"
+    for i, (opt_text, tag) in enumerate(q["options"], start=1):
+        text += f"{i}. {opt_text}\n"
+
+    if q["multi"]:
+        text += "\nВыберите варианты (можно несколько) и нажмите «Готово»."
+    else:
+        text += "\nВыберите один вариант."
+
+    # Формируем короткие кнопки (только цифры)
     buttons = []
-    for opt_text, tag in q["options"]:
-        buttons.append([InlineKeyboardButton(text=opt_text, callback_data=f"q_{step}_{tag or 'none'}")])
+    row = []
+    for i in range(1, len(q["options"]) + 1):
+        row.append(InlineKeyboardButton(text=str(i), callback_data=f"q_{step}_{i}"))
+        if len(row) == 5:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
 
     if q["multi"]:
         buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"q_{step}_done")])
 
     await message.answer(
-        q["text"],
+        text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
@@ -223,17 +240,32 @@ async def send_question(message: types.Message, state: FSMContext):
 async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
     step = int(parts[1])
-    tag = parts[2]
+    answer = parts[2]  # может быть номер или "done"
 
     data = await state.get_data()
     tags = data.get("tags", [])
 
-    if tag == "done":
+    # Обработка «Готово»
+    if answer == "done":
         await state.update_data(survey_step=step + 1)
         await callback.message.delete()
         await send_question(callback.message, state)
         await callback.answer()
         return
+
+    # Обработка цифры
+    try:
+        option_index = int(answer) - 1
+    except ValueError:
+        await callback.answer("Ошибка. Попробуйте ещё раз.")
+        return
+
+    q = SURVEY_QUESTIONS[step]
+    if option_index < 0 or option_index >= len(q["options"]):
+        await callback.answer("Ошибка. Попробуйте ещё раз.")
+        return
+
+    opt_text, tag = q["options"][option_index]
 
     # ===== ОБРАБОТКА ВОПРОСА 6 (АЛЛЕРГИЯ) =====
     if step == 5:  # Вопрос 6
@@ -254,18 +286,16 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
             await callback.answer()
             return
 
-    if tag != "none" and tag not in tags:
+    if tag != "none" and tag is not None and tag not in tags:
         tags.append(tag)
         await state.update_data(tags=tags)
-
-    q = SURVEY_QUESTIONS[step]
 
     if not q["multi"]:
         await state.update_data(survey_step=step + 1)
         await callback.message.delete()
         await send_question(callback.message, state)
     else:
-        await callback.answer("Добавлено! Выберите ещё или нажмите «Готово».")
+        await callback.answer(f"Выбрано: {opt_text}")
         return
 
     await callback.answer()
