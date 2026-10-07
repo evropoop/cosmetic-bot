@@ -42,6 +42,7 @@ db.init_db()
 class Form(StatesGroup):
     waiting_for_name = State()
     survey = State()
+    waiting_for_allergy = State()
     waiting_for_composition = State()
 
 # ================== КНОПКИ ==================
@@ -78,62 +79,71 @@ def get_final_keyboard():
     ])
 
 
-# ================== АНКЕТА ==================
+# ================== АНКЕТА (6 ВОПРОСОВ) ==================
 SURVEY_QUESTIONS = [
     {
         "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
         "options": [
-            ("Акне, активные воспаления", "problem"),
-            ("Закрытые комедоны", "problem"),
-            ("Повышенная жирность", "fat"),
-            ("Расширенные поры", "fat"),
-            ("Сухость, стянутость", "dry"),
-            ("Шелушения", "dry"),
-            ("Пигментные пятна / постакне", "pigment"),
-            ("Мелкая сетка морщин", "age"),
-            ("Покраснения, купероз", "reactive"),
+            ("Акне, активные воспаления (прыщи, подкожники)", "problem"),
+            ("Закрытые комедоны (мелкие бугорки, неровный рельеф)", "problem"),
+            ("Повышенная жирность кожи в течение дня", "fat"),
+            ("Расширенные поры, чёрные точки", "fat"),
+            ("Сухость, постоянное чувство стянутости", "dry"),
+            ("Шелушения на коже", "dry"),
+            ("Пигментные пятна / следы постакне", "pigment"),
+            ("Мелкая сетка морщин, потеря тонуса", "age"),
+            ("Покраснения, видимая сосудистая сеточка (купероз)", "reactive"),
         ],
         "multi": True,
     },
     {
-        "text": "Вопрос 2. Как чувствует себя кожа через 10 минут после умывания водой?",
+        "text": "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
         "options": [
             ("Комфортно, нет стянутости", None),
-            ("Стягивает терпимо", None),
-            ("Стягивает сильно, кожа как пергамент", "barrier_broken"),
-            ("Сразу начинает блестеть", None),
+            ("Стягивает терпимо, хочется нанести базовый уход", None),
+            ("Стягивает очень сильно, кожа как «пергамент»", "barrier_broken"),
+            ("Практически сразу начинает блестеть от жирности", None),
         ],
         "multi": False,
     },
     {
-        "text": "Вопрос 3. Как ведёт себя кожа к середине дня?",
+        "text": "Вопрос 3. Как ведёт себя ваша кожа к середине дня?",
         "options": [
-            ("Остаётся нормальной", None),
-            ("Блеск только в Т-зоне", None),
+            ("Остаётся нормальной (нет ни сухости, ни лишнего блеска)", None),
+            ("Появляется жирный блеск только в Т-зоне (лоб, нос, подбородок)", None),
             ("Сильно блестит всё лицо", "fat_compensatory"),
-            ("Кожа сохнет, макияж проваливается", "barrier_broken"),
+            ("Кожа сохнет, макияж «проваливается» или подчёркивает шелушения", "barrier_broken"),
         ],
         "multi": False,
     },
     {
-        "text": "Вопрос 4. Насколько кожа чувствительна к раздражителям?",
+        "text": "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям (холод, жара, новая косметика)?",
         "options": [
-            ("Спокойная", None),
-            ("Слегка чувствительная", None),
-            ("Реактивная (краснеет, горит)", "reactive"),
+            ("Спокойная (редко краснеет, нормально переносит новые банки)", None),
+            ("Слегка чувствительная (может покраснеть после умывания, но быстро проходит)", None),
+            ("Реактивная (часто краснеет, горит, бывают аллергии или пощипывания)", "reactive"),
         ],
         "multi": False,
     },
     {
-        "text": "Вопрос 5. Есть ли что-то из перечисленного?\n(Можно выбрать несколько)",
+        "text": "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько)",
         "options": [
-            ("Использую Скинорен/Базирон/ретиноиды", "reactive"),
-            ("Гормональные нарушения (СПКЯ, щитовидка)", "medicine"),
-            ("Кожные заболевания (розацеа, дерматит)", "medicine"),
-            ("Беременность или лактация", "pregnancy"),
+            ("Использую жёсткие аптечные мази (Скинорен, Базирон, Клензит, ретиноиды)", "reactive"),
+            ("Есть гормональные нарушения (СПКЯ, инсулинорезистентность, щитовидка)", "medicine"),
+            ("Есть кожные заболевания (Розацеа, Дерматит, Псориаз, Экзема)", "medicine"),
+            ("Беременность или период лактации", "pregnancy"),
             ("Ничего из перечисленного", None),
         ],
         "multi": True,
+    },
+    {
+        "text": "Вопрос 6. И последнее — есть ли у вас известная аллергия на конкретные косметические компоненты?\n\n"
+                "(Часто реакцию дают витамин С, ниацинамид, мёд, муцин улитки, эфирные масла, растительные экстракты или металлы — например, никель).",
+        "options": [
+            ("Нет, аллергии нет", "no_allergy"),
+            ("Да, есть (напишу текстом)", "has_allergy"),
+        ],
+        "multi": False,
     },
 ]
 
@@ -164,8 +174,9 @@ async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(Form.waiting_for_name)
     await callback.message.answer(
         "Здравствуйте. Я Роман Андреевич, старший аналитик Skin Protokol и ассистент Марии.\n\n"
-        "Моя задача — оценить ваш уход строго индивидуально. Напишите, пожалуйста, "
-        "как я могу к вам обращаться?"
+        "Моя задача — оценить ваш уход строго индивидуально.\n\n"
+        "Для начала напишите, как к вам обращаться:",
+        reply_markup=get_main_keyboard()
     )
     await callback.answer()
 
@@ -179,8 +190,8 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(survey_step=0, tags=[])
 
     await message.answer(
-        f"{name}, очень приятно. Теперь ответьте, пожалуйста, на 5 коротких вопросов.",
-        reply_markup=get_main_keyboard()
+        f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы алгоритм понял, "
+        f"с чем мы работаем. 👇"
     )
     await send_question(message, state)
 
@@ -224,6 +235,25 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
+    # ===== ОБРАБОТКА ВОПРОСА 6 (АЛЛЕРГИЯ) =====
+    if step == 5:  # Вопрос 6
+        if tag == "no_allergy":
+            await state.update_data(survey_step=6)
+            await callback.message.delete()
+            await send_question(callback.message, state)
+            await callback.answer()
+            return
+
+        if tag == "has_allergy":
+            await state.update_data(survey_step=6)
+            await state.set_state(Form.waiting_for_allergy)
+            await callback.message.delete()
+            await callback.message.answer(
+                "Напишите название аллергена в ответном сообщении:"
+            )
+            await callback.answer()
+            return
+
     if tag != "none" and tag not in tags:
         tags.append(tag)
         await state.update_data(tags=tags)
@@ -239,6 +269,21 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         return
 
     await callback.answer()
+
+
+# ================== АЛЛЕРГИЯ (ТЕКСТ) ==================
+@dp.message(StateFilter(Form.waiting_for_allergy))
+async def process_allergy(message: types.Message, state: FSMContext):
+    allergy_text = message.text.strip()
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+    tags.append(f"allergy_{allergy_text}")
+
+    await state.update_data(tags=tags)
+    await state.set_state(Form.survey)
+    await message.answer(f"Записала: аллергия на «{allergy_text}». Учту это при анализе.")
+    await send_question(message, state)
 
 
 # ================== ДИАГНОЗ ОТ ИИ + РАЗВИЛКА ==================
