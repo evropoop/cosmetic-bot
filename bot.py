@@ -42,6 +42,7 @@ db.init_db()
 class Form(StatesGroup):
     waiting_for_name = State()
     survey = State()
+    waiting_for_medicine = State()
     waiting_for_allergy = State()
     waiting_for_composition = State()
 
@@ -84,54 +85,55 @@ SURVEY_QUESTIONS = [
     {
         "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
         "options": [
-            ("Акне, активные воспаления (прыщи, подкожники)", "problem"),
-            ("Закрытые комедоны (мелкие бугорки, неровный рельеф)", "problem"),
-            ("Повышенная жирность кожи в течение дня", "fat"),
-            ("Расширенные поры, чёрные точки", "fat"),
-            ("Сухость, постоянное чувство стянутости", "dry"),
-            ("Шелушения на коже", "dry"),
-            ("Пигментные пятна / следы постакне", "pigment"),
-            ("Мелкая сетка морщин, потеря тонуса", "age"),
-            ("Покраснения, видимая сосудистая сеточка (купероз)", "reactive"),
+            ("Акне / активные воспаления", "problem"),
+            ("Закрытые комедоны / бугорки", "problem"),
+            ("Сильная жирность днём", "fat"),
+            ("Чёрные точки / поры", "fat"),
+            ("Сухость / стянутость", "dry"),
+            ("Шелушения", "dry"),
+            ("Пигментация / постакне", "pigment"),
+            ("Морщины / потеря тонуса", "age"),
+            ("Покраснения / купероз", "reactive"),
         ],
         "multi": True,
     },
     {
         "text": "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
         "options": [
-            ("Комфортно, нет стянутости", None),
-            ("Стягивает терпимо, хочется нанести базовый уход", None),
-            ("Стягивает очень сильно, кожа как «пергамент»", "barrier_broken"),
-            ("Практически сразу начинает блестеть от жирности", None),
+            ("Комфортно, не стягивает", None),
+            ("Терпимо, хочется нанести крем", None),
+            ("Сильно стягивает («пергамент»)", "barrier_broken"),
+            ("Сразу блестит от жирности", None),
         ],
         "multi": False,
     },
     {
         "text": "Вопрос 3. Как ведёт себя ваша кожа к середине дня?",
         "options": [
-            ("Остаётся нормальной (нет ни сухости, ни лишнего блеска)", None),
-            ("Появляется жирный блеск только в Т-зоне (лоб, нос, подбородок)", None),
+            ("Нормально (без сухости и блеска)", None),
+            ("Блестит только Т-зона", None),
             ("Сильно блестит всё лицо", "fat_compensatory"),
-            ("Кожа сохнет, макияж «проваливается» или подчёркивает шелушения", "barrier_broken"),
+            ("Сохнет / шелушится", "barrier_broken"),
         ],
         "multi": False,
     },
     {
         "text": "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям (холод, жара, новая косметика)?",
         "options": [
-            ("Спокойная (редко краснеет, нормально переносит новые банки)", None),
-            ("Слегка чувствительная (может покраснеть после умывания, но быстро проходит)", None),
-            ("Реактивная (часто краснеет, горит, бывают аллергии или пощипывания)", "reactive"),
+            ("Спокойная (редко краснеет)", None),
+            ("Слегка чувствительная", None),
+            ("Реактивная (горит, краснеет)", "reactive"),
         ],
         "multi": False,
     },
     {
         "text": "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько)",
         "options": [
-            ("Использую жёсткие аптечные мази (Скинорен, Базирон, Клензит, ретиноиды)", "reactive"),
-            ("Есть гормональные нарушения (СПКЯ, инсулинорезистентность, щитовидка)", "medicine"),
-            ("Есть кожные заболевания (Розацеа, Дерматит, Псориаз, Экзема)", "medicine"),
-            ("Беременность или период лактации", "pregnancy"),
+            ("Аптечные мази (Скинорен и др.)", "reactive"),
+            ("Гормональные нарушения", "medicine"),
+            ("Кожные заболевания (розацеа и др.)", "medicine"),
+            ("Беременность / лактация", "pregnancy"),
+            ("Другое (напишу текстом)", "medicine_other"),
             ("Ничего из перечисленного", None),
         ],
         "multi": True,
@@ -189,13 +191,13 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(survey_step=0, tags=[])
 
     await message.answer(
-        f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы алгоритм понял, "
+        f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, "
         f"с чем мы работаем. 👇"
     )
     await send_question(message, state)
 
 
-# ================== АНКЕТА (С ЦИФРАМИ НА КНОПКАХ) ==================
+# ================== АНКЕТА ==================
 async def send_question(message: types.Message, state: FSMContext):
     data = await state.get_data()
     step = data.get("survey_step", 0)
@@ -205,33 +207,15 @@ async def send_question(message: types.Message, state: FSMContext):
         return
 
     q = SURVEY_QUESTIONS[step]
-
-    # Формируем текст сообщения со всеми вариантами
-    text = q["text"] + "\n\n"
-    for i, (opt_text, tag) in enumerate(q["options"], start=1):
-        text += f"{i}. {opt_text}\n"
-
-    if q["multi"]:
-        text += "\nВыберите варианты (можно несколько) и нажмите «Готово»."
-    else:
-        text += "\nВыберите один вариант."
-
-    # Формируем короткие кнопки (только цифры)
     buttons = []
-    row = []
-    for i in range(1, len(q["options"]) + 1):
-        row.append(InlineKeyboardButton(text=str(i), callback_data=f"q_{step}_{i}"))
-        if len(row) == 5:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
+    for opt_text, tag in q["options"]:
+        buttons.append([InlineKeyboardButton(text=opt_text, callback_data=f"q_{step}_{tag or 'none'}")])
 
     if q["multi"]:
         buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"q_{step}_done")])
 
     await message.answer(
-        text,
+        q["text"],
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
@@ -240,35 +224,30 @@ async def send_question(message: types.Message, state: FSMContext):
 async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
     step = int(parts[1])
-    answer = parts[2]  # может быть номер или "done"
+    tag = parts[2]
 
     data = await state.get_data()
     tags = data.get("tags", [])
 
-    # Обработка «Готово»
-    if answer == "done":
+    if tag == "done":
         await state.update_data(survey_step=step + 1)
         await callback.message.delete()
         await send_question(callback.message, state)
         await callback.answer()
         return
 
-    # Обработка цифры
-    try:
-        option_index = int(answer) - 1
-    except ValueError:
-        await callback.answer("Ошибка. Попробуйте ещё раз.")
+    # ===== ВОПРОС 5: «ДРУГОЕ» =====
+    if step == 4 and tag == "medicine_other":
+        await state.set_state(Form.waiting_for_medicine)
+        await callback.message.delete()
+        await callback.message.answer(
+            "Напишите ваш вариант в ответном сообщении:"
+        )
+        await callback.answer()
         return
 
-    q = SURVEY_QUESTIONS[step]
-    if option_index < 0 or option_index >= len(q["options"]):
-        await callback.answer("Ошибка. Попробуйте ещё раз.")
-        return
-
-    opt_text, tag = q["options"][option_index]
-
-    # ===== ОБРАБОТКА ВОПРОСА 6 (АЛЛЕРГИЯ) =====
-    if step == 5:  # Вопрос 6
+    # ===== ВОПРОС 6: АЛЛЕРГИЯ =====
+    if step == 5:
         if tag == "no_allergy":
             await state.update_data(survey_step=6)
             await callback.message.delete()
@@ -286,22 +265,45 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
             await callback.answer()
             return
 
-    if tag != "none" and tag is not None and tag not in tags:
+    if tag != "none" and tag not in tags:
         tags.append(tag)
         await state.update_data(tags=tags)
+
+    q = SURVEY_QUESTIONS[step]
 
     if not q["multi"]:
         await state.update_data(survey_step=step + 1)
         await callback.message.delete()
         await send_question(callback.message, state)
     else:
-        await callback.answer(f"Выбрано: {opt_text}")
+        await callback.answer("Добавлено! Выберите ещё или нажмите «Готово».")
         return
 
     await callback.answer()
 
 
-# ================== АЛЛЕРГИЯ (ТЕКСТ) ==================
+# ================== «ДРУГОЕ» (ВОПРОС 5) ==================
+@dp.message(StateFilter(Form.waiting_for_medicine))
+async def process_medicine(message: types.Message, state: FSMContext):
+    text = message.text.strip()
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+    tags.append("medicine")
+
+    await state.update_data(tags=tags)
+
+    # Сохраняем текст «другое» в отчёт
+    other = data.get("medicine_other", [])
+    other.append(text)
+    await state.update_data(medicine_other=other)
+
+    await state.set_state(Form.survey)
+    await message.answer(f"Записано: «{text}».")
+    await send_question(message, state)
+
+
+# ================== АЛЛЕРГИЯ (ВОПРОС 6) ==================
 @dp.message(StateFilter(Form.waiting_for_allergy))
 async def process_allergy(message: types.Message, state: FSMContext):
     allergy_text = message.text.strip()
@@ -312,7 +314,7 @@ async def process_allergy(message: types.Message, state: FSMContext):
 
     await state.update_data(tags=tags)
     await state.set_state(Form.survey)
-    await message.answer(f"Записала: аллергия на «{allergy_text}». Учту это при анализе.")
+    await message.answer(f"Записано: аллергия на «{allergy_text}». Учту это при анализе.")
     await send_question(message, state)
 
 
