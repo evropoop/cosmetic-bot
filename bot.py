@@ -512,7 +512,12 @@ async def help_text(message: types.Message):
         "📌 Связь: @miroslavskayaboks"
     )
 
-
+@dp.message(F.video_note)
+async def get_video_note_id(message: types.Message):
+    """Временный обработчик для получения file_id кружка."""
+    file_id = message.video_note.file_id
+    logger.info(f"🎥 FILE_ID КРУЖКА: {file_id}")
+    await message.answer(f"File ID: `{file_id}`", parse_mode="Markdown")
 # ================== ЗАПУСК ==================
 async def main():
     logger.info("🚀 Бот запущен!")
