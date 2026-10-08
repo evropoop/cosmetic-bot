@@ -578,6 +578,17 @@ async def pay_scanner(callback: types.CallbackQuery):
 @dp.message(F.text == "📋 Моя подписка")
 async def my_subscription(message: types.Message):
     user_id = message.from_user.id
+
+    # ===== БЕЗЛИМИТ =====
+    if user_id in UNLIMITED_IDS:
+        await message.answer(
+            "👑 *Режим безлимита активен.*\n\n"
+            "У вас неограниченный доступ к анализу составов.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # ===== ОБЫЧНАЯ ПОДПИСКА =====
     sub = db.get_subscription(user_id)
 
     if not sub or sub["expires_at"] <= datetime.now():
