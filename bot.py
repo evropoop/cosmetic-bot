@@ -15,7 +15,11 @@ from aiogram.types import (
 from dotenv import load_dotenv
 
 import database as db
-from ai_analyzer import analyze_composition, generate_diagnosis
+from ai_analyzer import (
+    analyze_composition,
+    analyze_composition_photo,
+    generate_diagnosis
+)
 
 # ================== ЗАГРУЗКА ПЕРЕМЕННЫХ ==================
 load_dotenv()
@@ -363,8 +367,8 @@ async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня в деле.\n\n"
         "Прямо сейчас откройте сайт любого косметического магазина (или подойдите к полке), "
-        "найдите средство, которое хотите купить или уже используете, и пришлите мне фото "
-        "его состава (INCI). Проверим, безопасно ли оно для вашей кожи!",
+        "найдите средство, которое хотите купить или уже используете, и пришлите мне "
+        "фото его состава (INCI) или скопируйте текст. Проверим, безопасно ли оно для вашей кожи!",
         reply_markup=get_main_keyboard()
     )
     await state.set_state(Form.waiting_for_composition)
@@ -409,19 +413,12 @@ async def want_mariya_box(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== АНАЛИЗ СОСТАВА ==================
-@dp.message(StateFilter(Form.waiting_for_composition))
-async def process_composition(message: types.Message, state: FSMContext):
+# ================== ОБРАБОТКА ФОТО СОСТАВА ==================
+@dp.message(StateFilter(Form.waiting_for_composition), F.photo)
+async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
     user_name = (await state.get_data()).get("user_name", "")
-
-    if message.text in ["📋 Моя подписка", "🆘 Помощь"]:
-        if message.text == "📋 Моя подписка":
-            await my_subscription(message)
-        else:
-            await help_text(message)
-        return
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
@@ -438,17 +435,27 @@ async def process_composition(message: types.Message, state: FSMContext):
         )
         return
 
-    composition = message.text
-    tags = user.get("tags", [])
+    await message.answer("🔬 Анализирую фото состава...")
 
-    await message.answer("🔬 Анализирую состав...")
+    photo = message.photo[-1]
+    file_id = photo.file_id
 
     try:
-        result = await analyze_composition(composition, tags, user_name)
+        file = await bot.get_file(file_id)
+        photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+    except Exception as e:
+        logger.error(f"Не удалось получить файл: {e}")
+        await message.answer("❌ Не удалось загрузить фото. Попробуйте ещё раз.")
+        return
+
+    tags = user.get("tags", [])
+
+    try:
+        result = await analyze_composition_photo(photo_url, tags, user_name)
         verdict = result["verdict"]
         status = result["status"]
 
-        db.save_analysis(user_id, composition, verdict, status)
+        db.save_analysis(user_id, f"[ФОТО] {file_id}", verdict, status)
 
         if status in ["bad", "hidden_threat"]:
             db.increment_bad_bottles(user_id)
@@ -469,69 +476,4 @@ async def process_composition(message: types.Message, state: FSMContext):
             else:
                 await message.answer(
                     "Это была ваша последняя бесплатная проверка.\n\n"
-                    "Хотите безлимит? Оформляйте доступ за 1000 ₽:",
-                    reply_markup=get_subscription_keyboard()
-                )
-        else:
-            await message.answer(verdict)
-
-    except Exception as e:
-        logger.error(f"Ошибка анализа: {e}")
-        await message.answer("❌ Ошибка при анализе. Попробуйте позже.")
-
-
-# ================== ОПЛАТА (ЗАГЛУШКА) ==================
-@dp.callback_query(F.data == "pay_scanner")
-async def pay_scanner(callback: types.CallbackQuery):
-    await callback.message.answer(
-        "🔧 Оплата будет подключена на следующем этапе (Продамус / ЮKassa)."
-    )
-    await callback.answer()
-
-
-# ================== ПОДПИСКА ==================
-@dp.message(F.text == "📋 Моя подписка")
-async def my_subscription(message: types.Message):
-    user_id = message.from_user.id
-    sub = db.get_subscription(user_id)
-
-    if not sub or sub["expires_at"] <= datetime.now():
-        await message.answer(
-            "❌ У вас нет активной подписки.\n\n"
-            "Оформите безлимитный доступ за 1000 ₽:",
-            reply_markup=get_subscription_keyboard()
-        )
-    else:
-        await message.answer(
-            f"✅ Ваша подписка активна до:\n"
-            f"📅 {sub['expires_at'].strftime('%d.%m.%Y %H:%M')}"
-        )
-
-
-# ================== ПОМОЩЬ ==================
-@dp.message(F.text == "🆘 Помощь")
-async def help_text(message: types.Message):
-    await message.answer(
-        "🤖 Я — Роман Андреевич, ИИ-аналитик косметических составов.\n\n"
-        "1. Пройдите диагностику\n"
-        "2. Пришлите состав (фото или текст)\n"
-        "3. Получите разбор\n\n"
-        "📌 Связь: @miroslavskayaboks"
-    )
-
-
-# ================== ОТЛАДОЧНЫЙ ОБРАБОТЧИК ==================
-@dp.message()
-async def debug_all_messages(message: types.Message, state: FSMContext):
-    current_state = await state.get_state()
-    logger.info(f"📩 Сообщение: '{message.text}' | Состояние: {current_state}")
-
-
-# ================== ЗАПУСК ==================
-async def main():
-    logger.info("🚀 Бот запущен!")
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+                    "Хотите безлимит? Оформляйте доступ
