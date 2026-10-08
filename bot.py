@@ -25,6 +25,9 @@ MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 
 UNLIMITED_IDS = [MARIYA_ID, 1962088357]
 
+# ===== FILE_ID КРУЖКА МАРИИ =====
+CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
+
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
 
@@ -156,6 +159,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username
     db.get_or_create_user(user_id, username)
+
+    # Отправляем кружок Марии
+    try:
+        await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
+    except Exception as e:
+        logger.error(f"Не удалось отправить кружок: {e}")
 
     await message.answer(
         "👋 Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇",
@@ -510,15 +519,6 @@ async def help_text(message: types.Message):
         "3. Получите разбор\n\n"
         "📌 Связь: @miroslavskayaboks"
     )
-
-
-# ================== ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ FILE_ID ==================
-@dp.message(F.video_note)
-async def get_video_note_id(message: types.Message):
-    """Временный обработчик для получения file_id кружка."""
-    file_id = message.video_note.file_id
-    logger.info(f"🎥 FILE_ID КРУЖКА: {file_id}")
-    await message.answer(f"File ID: `{file_id}`", parse_mode="Markdown")
 
 
 # ================== ЗАПУСК ==================
