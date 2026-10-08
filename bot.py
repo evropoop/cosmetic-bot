@@ -230,7 +230,8 @@ async def send_question(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("q_"))
 async def process_answer(callback: types.CallbackQuery, state: FSMContext):
-    parts = callback.data.split("_")
+    # ===== ИСПРАВЛЕНО: split с ограничением 2 =====
+    parts = callback.data.split("_", 2)
     step = int(parts[1])
     tag = parts[2]
 
