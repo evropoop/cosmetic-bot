@@ -65,7 +65,7 @@ def get_main_keyboard():
 
 def get_path_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Пойду выбирать со сканером", callback_data="go_scanner")],
+        [InlineKeyboardButton(text="🛒 Пойду выбирать с Романом Андреевичем", callback_data="go_scanner")],
         [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
         [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
     ])
@@ -230,7 +230,6 @@ async def send_question(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("q_"))
 async def process_answer(callback: types.CallbackQuery, state: FSMContext):
-    # ===== ИСПРАВЛЕНО: split с ограничением 2 =====
     parts = callback.data.split("_", 2)
     step = int(parts[1])
     tag = parts[2]
@@ -347,7 +346,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
 
     await message.answer(
         "Диагностика завершена. Теперь нам нужно выстроить безопасный физиологичный уход. "
-        "Вы можете собрать его самостоятельно, проверяя каждую банку через мой сканер, "
+        "Вы можете собрать его самостоятельно, проверяя каждую банку через меня, "
         "или сразу забрать готовую схему от Марии. Если у вас сейчас вообще нет ухода — "
         "мы выстроим его с чистого листа.",
         reply_markup=get_path_keyboard()
@@ -357,7 +356,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
     await state.set_state(Form.waiting_for_composition)
 
 
-# ================== ВЕТКА «СКАНЕР» ==================
+# ================== ВЕТКА «РОМАН АНДРЕЕВИЧ» ==================
 @dp.callback_query(F.data == "go_scanner")
 async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
@@ -433,7 +432,7 @@ async def process_composition(message: types.Message, state: FSMContext):
             "необходимо оформить полный доступ к алгоритму. Стоимость безлимитного "
             "доступа — 1000 рублей.\n\n"
             "Важно: после оплаты алгоритм будет жёстко откалиброван под ваши ответы "
-            "в анкете. Не используйте сканер для проверки косметики подруг — анализ "
+            "в анкете. Не используйте меня для проверки косметики подруг — анализ "
             "чужих средств собьёт настройки вашего профиля.",
             reply_markup=get_subscription_keyboard()
         )
@@ -499,7 +498,7 @@ async def my_subscription(message: types.Message):
     if not sub or sub["expires_at"] <= datetime.now():
         await message.answer(
             "❌ У вас нет активной подписки.\n\n"
-            "Оформите безлимитный сканер за 1000 ₽:",
+            "Оформите безлимитный доступ за 1000 ₽:",
             reply_markup=get_subscription_keyboard()
         )
     else:
