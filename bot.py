@@ -27,6 +27,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 
+# ===== БЕЗЛИМИТНЫЕ ID =====
 UNLIMITED_IDS = [MARIYA_ID, 1962088357]
 
 # ===== FILE_ID КРУЖКА МАРИИ =====
@@ -420,6 +421,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(user_id)
     user_name = (await state.get_data()).get("user_name", "")
 
+    # ===== БЕЗЛИМИТ =====
     is_unlimited = (user_id in UNLIMITED_IDS)
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
@@ -462,6 +464,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         else:
             db.reset_bad_bottles(user_id)
 
+        # ===== БЕЗЛИМИТ =====
         if is_unlimited:
             await message.answer(verdict)
             await message.answer("👑 Режим безлимита: проверок не ограничено.")
@@ -501,6 +504,7 @@ async def process_composition(message: types.Message, state: FSMContext):
             await help_text(message)
         return
 
+    # ===== БЕЗЛИМИТ =====
     is_unlimited = (user_id in UNLIMITED_IDS)
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
@@ -533,6 +537,7 @@ async def process_composition(message: types.Message, state: FSMContext):
         else:
             db.reset_bad_bottles(user_id)
 
+        # ===== БЕЗЛИМИТ =====
         if is_unlimited:
             await message.answer(verdict)
             await message.answer("👑 Режим безлимита: проверок не ограничено.")
