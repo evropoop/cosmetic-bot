@@ -160,7 +160,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     db.get_or_create_user(user_id, username)
 
-    # Отправляем кружок Марии
     try:
         await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
     except Exception as e:
@@ -519,6 +518,13 @@ async def help_text(message: types.Message):
         "3. Получите разбор\n\n"
         "📌 Связь: @miroslavskayaboks"
     )
+
+
+# ================== ОТЛАДОЧНЫЙ ОБРАБОТЧИК ==================
+@dp.message()
+async def debug_all_messages(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    logger.info(f"📩 Сообщение: '{message.text}' | Состояние: {current_state}")
 
 
 # ================== ЗАПУСК ==================
