@@ -293,7 +293,6 @@ async def process_medicine(message: types.Message, state: FSMContext):
 
     await state.update_data(tags=tags)
 
-    # Сохраняем текст «другое» в отчёт
     other = data.get("medicine_other", [])
     other.append(text)
     await state.update_data(medicine_other=other)
@@ -513,6 +512,7 @@ async def help_text(message: types.Message):
     )
 
 
+# ================== ВРЕМЕННЫЙ ОБРАБОТЧИК ДЛЯ FILE_ID ==================
 @dp.message(F.video_note)
 async def get_video_note_id(message: types.Message):
     """Временный обработчик для получения file_id кружка."""
