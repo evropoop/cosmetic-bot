@@ -423,6 +423,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 
     # ===== БЕЗЛИМИТ =====
     is_unlimited = (user_id in UNLIMITED_IDS)
+    logger.info(f"🔍 ФОТО: user_id={user_id}, UNLIMITED_IDS={UNLIMITED_IDS}, is_unlimited={is_unlimited}")
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
@@ -506,6 +507,7 @@ async def process_composition(message: types.Message, state: FSMContext):
 
     # ===== БЕЗЛИМИТ =====
     is_unlimited = (user_id in UNLIMITED_IDS)
+    logger.info(f"🔍 ТЕКСТ: user_id={user_id}, UNLIMITED_IDS={UNLIMITED_IDS}, is_unlimited={is_unlimited}")
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
