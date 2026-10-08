@@ -1,8 +1,11 @@
 import os
+import logging
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
@@ -66,8 +69,25 @@ SYSTEM_PROMPT = """Ты — Роман Андреевич, старший ана
 """
 
 
+def _get_status(result: str) -> str:
+    if "🔴" in result:
+        return "bad"
+    elif "🟠" in result:
+        return "hidden_threat"
+    elif "🟡" in result:
+        return "conditional"
+    elif "🟢" in result:
+        return "good"
+    elif "⚪" in result:
+        return "neutral"
+    elif "🔵" in result:
+        return "hydrophilic"
+    else:
+        return "unknown"
+
+
 async def analyze_composition(composition: str, tags: list, user_name: str = "") -> dict:
-    """Отправляет состав в Polza.ai и возвращает вердикт (до 400 символов)."""
+    """Анализ текстового состава."""
     tags_str = ", ".join(tags) if tags else "нет тегов"
 
     if len(composition) > 2000:
@@ -80,41 +100,87 @@ async def analyze_composition(composition: str, tags: list, user_name: str = "")
 
 Выдай вердикт строго по формату (вердикт + объяснение до 400 символов)."""
 
-    response = await client.chat.completions.create(
-        model="openai/gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.7,
-        max_tokens=250,
-    )
+    try:
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=250,
+        )
 
-    result = response.choices[0].message.content
+        if not response or not response.choices:
+            logger.error("OpenAI вернул пустой ответ (текст)")
+            return {"verdict": "🔴 Не удалось получить ответ от ИИ. Попробуйте позже.", "status": "error"}
 
-    if len(result) > 400:
-        result = result[:397] + "..."
+        result = response.choices[0].message.content
 
-    if "🔴" in result:
-        status = "bad"
-    elif "🟠" in result:
-        status = "hidden_threat"
-    elif "🟡" in result:
-        status = "conditional"
-    elif "🟢" in result:
-        status = "good"
-    elif "⚪" in result:
-        status = "neutral"
-    elif "🔵" in result:
-        status = "hydrophilic"
-    else:
-        status = "unknown"
+        if not result:
+            logger.error("OpenAI вернул пустой текст")
+            return {"verdict": "🔴 Не удалось получить ответ от ИИ. Попробуйте позже.", "status": "error"}
 
-    return {"verdict": result, "status": status}
+        if len(result) > 400:
+            result = result[:397] + "..."
+
+        return {"verdict": result, "status": _get_status(result)}
+
+    except Exception as e:
+        logger.error(f"Ошибка в analyze_composition: {e}")
+        return {"verdict": "🔴 Ошибка при анализе. Попробуйте позже.", "status": "error"}
+
+
+async def analyze_composition_photo(photo_url: str, tags: list, user_name: str = "") -> dict:
+    """Анализ состава по фото."""
+    tags_str = ", ".join(tags) if tags else "нет тегов"
+
+    user_prompt = f"""Имя клиентки: {user_name or 'не указано'}
+Теги клиентки: [{tags_str}]
+
+На фото — состав косметического средства (INCI). Прочитай его и проанализируй.
+
+Выдай вердикт строго по формату (вердикт + объяснение до 400 символов)."""
+
+    try:
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": photo_url}}
+                    ]
+                }
+            ],
+            temperature=0.7,
+            max_tokens=250,
+        )
+
+        if not response or not response.choices:
+            logger.error("OpenAI вернул пустой ответ (фото)")
+            return {"verdict": "🔴 Не удалось получить ответ от ИИ. Попробуйте позже.", "status": "error"}
+
+        result = response.choices[0].message.content
+
+        if not result:
+            logger.error("OpenAI вернул пустой текст (фото)")
+            return {"verdict": "🔴 Не удалось получить ответ от ИИ. Попробуйте позже.", "status": "error"}
+
+        if len(result) > 400:
+            result = result[:397] + "..."
+
+        return {"verdict": result, "status": _get_status(result)}
+
+    except Exception as e:
+        logger.error(f"Ошибка в analyze_composition_photo: {e}")
+        return {"verdict": "🔴 Ошибка при анализе фото. Попробуйте позже.", "status": "error"}
 
 
 async def generate_diagnosis(name: str, tags: list) -> str:
-    """Генерирует короткий диагноз (до 400 символов) на основе тегов."""
+    """Генерирует короткий диагноз (до 400 символов)."""
     tags_str = ", ".join(tags) if tags else "нет тегов"
 
     user_prompt = f"""Имя клиентки: {name}
@@ -122,17 +188,30 @@ async def generate_diagnosis(name: str, tags: list) -> str:
 
 Выдай короткое резюме (до 400 символов): обратись по имени, опиши состояние кожи на основе тегов профессиональными терминами, объясни причину и возьми ситуацию под контроль. Одним абзацем, без списков."""
 
-    response = await client.chat.completions.create(
-        model="openai/gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.7,
-        max_tokens=200,
-    )
+    try:
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=200,
+        )
 
-    result = response.choices[0].message.content
-    if len(result) > 400:
-        result = result[:397] + "..."
-    return result
+        if not response or not response.choices:
+            return f"{name}, анализ завершён. Я беру вашу ситуацию под контроль: наша задача — выстроить надёжный физиологичный фундамент."
+
+        result = response.choices[0].message.content
+
+        if not result:
+            return f"{name}, анализ завершён. Я беру вашу ситуацию под контроль: наша задача — выстроить надёжный физиологичный фундамент."
+
+        if len(result) > 400:
+            result = result[:397] + "..."
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Ошибка в generate_diagnosis: {e}")
+        return f"{name}, анализ завершён. Я беру вашу ситуацию под контроль: наша задача — выстроить надёжный физиологичный фундамент."
