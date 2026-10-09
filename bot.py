@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart, StateFilter
@@ -27,10 +27,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 
-# ===== БЕЗЛИМИТНЫЕ ID =====
 UNLIMITED_IDS = [MARIYA_ID, 1962088357]
 
-# ===== FILE_ID КРУЖКА МАРИИ =====
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
 if not BOT_TOKEN:
@@ -163,7 +161,25 @@ SURVEY_QUESTIONS = [
 async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username
-    db.get_or_create_user(user_id, username)
+    user = db.get_or_create_user(user_id, username)
+
+    # ===== ПРОВЕРКА КАРАНТИНА =====
+    if user.get("survey_done", 0) == 1 and user_id not in UNLIMITED_IDS:
+        completed_at = user.get("survey_completed_at")
+        if completed_at:
+            completed_date = datetime.fromisoformat(completed_at)
+            days_passed = (datetime.now() - completed_date).days
+
+            if days_passed < 30:
+                days_left = 30 - days_passed
+                await message.answer(
+                    f"Ваша диагностическая карта зафиксирована. Сейчас мы работаем с текущим "
+                    f"состоянием вашей кожи, ей нужно время на восстановление. ⏳\n\n"
+                    f"Обновить профиль и пройти диагностику заново можно будет через "
+                    f"*{days_left}* дней.",
+                    parse_mode="Markdown"
+                )
+                return
 
     try:
         await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
@@ -227,10 +243,35 @@ async def send_question(message: types.Message, state: FSMContext):
     if q["multi"]:
         buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"q_{step}_done")])
 
+    # ===== КНОПКА «НАЗАД» (со 2-го вопроса) =====
+    if step > 0:
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_{step}")])
+
     await message.answer(
         q["text"],
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
+
+
+@dp.callback_query(F.data.startswith("back_"))
+async def process_back(callback: types.CallbackQuery, state: FSMContext):
+    step = int(callback.data.split("_")[1])
+    new_step = step - 1
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+
+    # Удаляем теги, которые были присвоены на текущем и последующих шагах
+    # (упрощённо: откатываем только текущий шаг)
+    current_q = SURVEY_QUESTIONS[step]
+    for _, tag in current_q["options"]:
+        if tag and tag in tags:
+            tags.remove(tag)
+
+    await state.update_data(survey_step=new_step, tags=tags)
+    await callback.message.delete()
+    await send_question(callback.message, state)
+    await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("q_"))
@@ -337,7 +378,9 @@ async def finish_survey(message: types.Message, state: FSMContext):
     user_name = data.get("user_name", "Клиент")
     user_id = message.chat.id
 
+    # ===== ФИКСИРУЕМ ЗАВЕРШЕНИЕ АНКЕТЫ (КАРАНТИН 30 ДНЕЙ) =====
     db.update_user_tags(user_id, tags)
+    db.mark_survey_completed(user_id)
 
     await message.answer("🔬 Анализирую ваши ответы...")
 
@@ -421,9 +464,8 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(user_id)
     user_name = (await state.get_data()).get("user_name", "")
 
-    # ===== БЕЗЛИМИТ =====
     is_unlimited = (user_id in UNLIMITED_IDS)
-    logger.info(f"🔍 ФОТО: user_id={user_id}, UNLIMITED_IDS={UNLIMITED_IDS}, is_unlimited={is_unlimited}")
+    logger.info(f"🔍 ФОТО: user_id={user_id}, is_unlimited={is_unlimited}")
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
@@ -465,7 +507,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         else:
             db.reset_bad_bottles(user_id)
 
-        # ===== БЕЗЛИМИТ =====
         if is_unlimited:
             await message.answer(verdict)
             await message.answer("👑 Режим безлимита: проверок не ограничено.")
@@ -505,9 +546,8 @@ async def process_composition(message: types.Message, state: FSMContext):
             await help_text(message)
         return
 
-    # ===== БЕЗЛИМИТ =====
     is_unlimited = (user_id in UNLIMITED_IDS)
-    logger.info(f"🔍 ТЕКСТ: user_id={user_id}, UNLIMITED_IDS={UNLIMITED_IDS}, is_unlimited={is_unlimited}")
+    logger.info(f"🔍 ТЕКСТ: user_id={user_id}, is_unlimited={is_unlimited}")
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
@@ -539,7 +579,6 @@ async def process_composition(message: types.Message, state: FSMContext):
         else:
             db.reset_bad_bottles(user_id)
 
-        # ===== БЕЗЛИМИТ =====
         if is_unlimited:
             await message.answer(verdict)
             await message.answer("👑 Режим безлимита: проверок не ограничено.")
@@ -579,7 +618,6 @@ async def pay_scanner(callback: types.CallbackQuery):
 async def my_subscription(message: types.Message):
     user_id = message.from_user.id
 
-    # ===== БЕЗЛИМИТ =====
     if user_id in UNLIMITED_IDS:
         await message.answer(
             "👑 *Режим безлимита активен.*\n\n"
@@ -588,7 +626,6 @@ async def my_subscription(message: types.Message):
         )
         return
 
-    # ===== ОБЫЧНАЯ ПОДПИСКА =====
     sub = db.get_subscription(user_id)
 
     if not sub or sub["expires_at"] <= datetime.now():
