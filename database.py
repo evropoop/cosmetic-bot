@@ -13,6 +13,7 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Таблица пользователей
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
@@ -21,11 +22,13 @@ def init_db():
         free_checks INTEGER DEFAULT 2,
         bad_bottles_in_a_row INTEGER DEFAULT 0,
         survey_done INTEGER DEFAULT 0,
+        survey_completed_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
     """)
 
+    # Таблица подписок
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS subscriptions (
         user_id INTEGER PRIMARY KEY,
@@ -35,6 +38,7 @@ def init_db():
     )
     """)
 
+    # Таблица истории разборов
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS analyses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +50,7 @@ def init_db():
     )
     """)
 
+    # Таблица платежей
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,6 +63,7 @@ def init_db():
     )
     """)
 
+    # Таблица заявок для Марии
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS leads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +81,7 @@ def init_db():
     print("✅ База данных инициализирована")
 
 
+# ================== ПОЛЬЗОВАТЕЛИ ==================
 def get_or_create_user(user_id: int, username: str = None):
     conn = get_connection()
     cursor = conn.cursor()
@@ -95,8 +102,10 @@ def get_or_create_user(user_id: int, username: str = None):
             "tags": [],
             "free_checks": 2,
             "bad_bottles_in_a_row": 0,
-            "survey_done": 0
+            "survey_done": 0,
+            "survey_completed_at": None
         }
+
     conn.close()
     return {
         "user_id": row[0],
@@ -104,7 +113,8 @@ def get_or_create_user(user_id: int, username: str = None):
         "tags": json.loads(row[2]) if row[2] else [],
         "free_checks": row[3],
         "bad_bottles_in_a_row": row[4],
-        "survey_done": row[5]
+        "survey_done": row[5],
+        "survey_completed_at": row[6] if len(row) > 6 else None
     }
 
 
@@ -114,6 +124,18 @@ def update_user_tags(user_id: int, tags: list):
     cursor.execute(
         "UPDATE users SET tags = ?, survey_done = 1, updated_at = ? WHERE user_id = ?",
         (json.dumps(tags, ensure_ascii=False), datetime.now().isoformat(), user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_survey_completed(user_id: int):
+    """Фиксирует дату завершения анкеты (для карантина 30 дней)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET survey_completed_at = ?, updated_at = ? WHERE user_id = ?",
+        (datetime.now().isoformat(), datetime.now().isoformat(), user_id)
     )
     conn.commit()
     conn.close()
@@ -170,6 +192,7 @@ def get_bad_bottles_count(user_id: int) -> int:
     return row[0] if row else 0
 
 
+# ================== ПОДПИСКИ ==================
 def save_subscription(user_id: int, tariff: str):
     conn = get_connection()
     cursor = conn.cursor()
@@ -201,6 +224,7 @@ def has_active_subscription(user_id: int) -> bool:
     return sub["expires_at"] > datetime.now()
 
 
+# ================== ИСТОРИЯ РАЗБОРОВ ==================
 def save_analysis(user_id: int, composition: str, verdict: str, status: str):
     conn = get_connection()
     cursor = conn.cursor()
@@ -224,6 +248,7 @@ def get_last_analyses(user_id: int, limit: int = 5):
     return [{"composition": r[0], "verdict": r[1], "status": r[2]} for r in rows]
 
 
+# ================== ПЛАТЕЖИ ==================
 def save_payment(user_id: int, amount: int, tariff: str, payment_id: str, status: str):
     conn = get_connection()
     cursor = conn.cursor()
@@ -243,6 +268,7 @@ def update_payment_status(payment_id: str, status: str):
     conn.close()
 
 
+# ================== ЗАЯВКИ ДЛЯ МАРИИ ==================
 def save_lead(user_id: int, username: str, tags: list, photos: list):
     conn = get_connection()
     cursor = conn.cursor()
