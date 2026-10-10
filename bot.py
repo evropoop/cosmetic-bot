@@ -27,6 +27,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 
+# ===== БЕЗЛИМИТНЫЕ ID =====
 UNLIMITED_IDS = [MARIYA_ID, 1962088357]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
@@ -163,23 +164,33 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     user = db.get_or_create_user(user_id, username)
 
+    # ===== ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ =====
+    logger.info(
+        f"🔍 /start: user_id={user_id}, UNLIMITED_IDS={UNLIMITED_IDS}, "
+        f"survey_done={user.get('survey_done')}, "
+        f"completed_at={user.get('survey_completed_at')}"
+    )
+
     # ===== ПРОВЕРКА КАРАНТИНА (только для обычных) =====
     if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
         completed_at = user.get("survey_completed_at")
         if completed_at:
-            completed_date = datetime.fromisoformat(completed_at)
-            days_passed = (datetime.now() - completed_date).days
+            try:
+                completed_date = datetime.fromisoformat(completed_at)
+                days_passed = (datetime.now() - completed_date).days
 
-            if days_passed < 30:
-                days_left = 30 - days_passed
-                await message.answer(
-                    f"Ваша диагностическая карта зафиксирована. Сейчас мы работаем с текущим "
-                    f"состоянием вашей кожи, ей нужно время на восстановление. ⏳\n\n"
-                    f"Обновить профиль и пройти диагностику заново можно будет через "
-                    f"*{days_left}* дней.",
-                    parse_mode="Markdown"
-                )
-                return
+                if days_passed < 30:
+                    days_left = 30 - days_passed
+                    await message.answer(
+                        f"Ваша диагностическая карта зафиксирована. Сейчас мы работаем с текущим "
+                        f"состоянием вашей кожи, ей нужно время на восстановление. ⏳\n\n"
+                        f"Обновить профиль и пройти диагностику заново можно будет через "
+                        f"*{days_left}* дней.",
+                        parse_mode="Markdown"
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Ошибка карантина: {e}")
 
     try:
         await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
@@ -380,6 +391,9 @@ async def finish_survey(message: types.Message, state: FSMContext):
     db.update_user_tags(user_id, tags)
     if user_id not in UNLIMITED_IDS:
         db.mark_survey_completed(user_id)
+        logger.info(f"🔒 Карантин 30 дней активирован для user_id={user_id}")
+    else:
+        logger.info(f"👑 Безлимит: карантин НЕ активирован для user_id={user_id}")
 
     await message.answer("🔬 Анализирую ваши ответы...")
 
@@ -387,7 +401,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
         diagnosis = await generate_diagnosis(user_name, tags)
     except Exception as e:
         logger.error(f"Ошибка генерации диагноза: {e}")
-        diagnosis = f"{user_name}, анализ завершён. Я беру вашу ситуацию под контроль: наша задача — выстроить надёжный физиологичный фундамент."
+        diagnosis = f"{user_name}, диагностика выявила нарушение барьерной функции. Требуется физиологичный подход."
 
     await message.answer(diagnosis)
 
