@@ -163,8 +163,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     user = db.get_or_create_user(user_id, username)
 
-    # ===== ПРОВЕРКА КАРАНТИНА =====
-    if user.get("survey_done", 0) == 1 and user_id not in UNLIMITED_IDS:
+    # ===== ПРОВЕРКА КАРАНТИНА (только для обычных) =====
+    if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
         completed_at = user.get("survey_completed_at")
         if completed_at:
             completed_date = datetime.fromisoformat(completed_at)
@@ -261,8 +261,6 @@ async def process_back(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
 
-    # Удаляем теги, которые были присвоены на текущем и последующих шагах
-    # (упрощённо: откатываем только текущий шаг)
     current_q = SURVEY_QUESTIONS[step]
     for _, tag in current_q["options"]:
         if tag and tag in tags:
@@ -378,9 +376,10 @@ async def finish_survey(message: types.Message, state: FSMContext):
     user_name = data.get("user_name", "Клиент")
     user_id = message.chat.id
 
-    # ===== ФИКСИРУЕМ ЗАВЕРШЕНИЕ АНКЕТЫ (КАРАНТИН 30 ДНЕЙ) =====
+    # ===== ФИКСИРУЕМ ЗАВЕРШЕНИЕ АНКЕТЫ (кроме безлимитных) =====
     db.update_user_tags(user_id, tags)
-    db.mark_survey_completed(user_id)
+    if user_id not in UNLIMITED_IDS:
+        db.mark_survey_completed(user_id)
 
     await message.answer("🔬 Анализирую ваши ответы...")
 
