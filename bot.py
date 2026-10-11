@@ -50,21 +50,23 @@ class Form(StatesGroup):
     survey = State()
     waiting_for_medicine = State()
     waiting_for_allergy = State()
-    waiting_for_category = State()
     waiting_for_composition = State()
 
-# ================== КНОПКИ ==================
+# ================== ТУМБЛЕР РЕЖИМОВ (ГЛАВНАЯ КЛАВИАТУРА) ==================
+def get_mode_keyboard():
+    """Постоянная нижняя клавиатура для выбора режима."""
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="🧼 Очищение")],
+        [KeyboardButton(text="🧴 Несмываемый уход")],
+        [KeyboardButton(text="📋 Моя подписка")],
+        [KeyboardButton(text="🆘 Помощь")]
+    ], resize_keyboard=True)
+
+
 def get_start_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="▶️ Начать диагностику", callback_data="start_diagnosis")]
     ])
-
-
-def get_main_keyboard():
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📋 Моя подписка")],
-        [KeyboardButton(text="🆘 Помощь")]
-    ], resize_keyboard=True)
 
 
 def get_path_keyboard():
@@ -72,13 +74,6 @@ def get_path_keyboard():
         [InlineKeyboardButton(text="🛒 Пойду выбирать с Романом Андреевичем", callback_data="go_scanner")],
         [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
         [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
-    ])
-
-
-def get_category_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🧴 Несмываемый уход (крем, сыворотка, тоник)", callback_data="cat_leave_on")],
-        [InlineKeyboardButton(text="💧 Демакияж / Очищение (масло, пенка, гель)", callback_data="cat_cleansing")],
     ])
 
 
@@ -217,7 +212,7 @@ async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
         "Здравствуйте. Я Роман Андреевич, старший аналитик Skin Protokol и ассистент Марии.\n\n"
         "Моя задача — оценить ваш уход строго индивидуально.\n\n"
         "Для начала напишите, как к вам обращаться:",
-        reply_markup=get_main_keyboard()
+        reply_markup=get_mode_keyboard()
     )
     await callback.answer()
 
@@ -254,7 +249,6 @@ async def send_question(message: types.Message, state: FSMContext):
     if q["multi"]:
         buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"q_{step}_done")])
 
-    # ===== КНОПКА «НАЗАД» (со 2-го вопроса) =====
     if step > 0:
         buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_{step}")])
 
@@ -299,7 +293,6 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ВОПРОС 5: «ДРУГОЕ» =====
     if step == 4 and tag == "medicine_other":
         await state.set_state(Form.waiting_for_medicine)
         await callback.message.delete()
@@ -309,7 +302,6 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ВОПРОС 6: АЛЛЕРГИЯ =====
     if step == 5:
         if tag == "no_allergy":
             await state.update_data(survey_step=6)
@@ -413,7 +405,32 @@ async def finish_survey(message: types.Message, state: FSMContext):
     )
 
     await state.clear()
-    await state.set_state(Form.waiting_for_category)
+    await state.set_state(Form.waiting_for_composition)
+
+
+# ================== ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ ==================
+@dp.message(F.text == "🧼 Очищение")
+async def set_mode_wash(message: types.Message, state: FSMContext):
+    await state.update_data(category="wash")
+    await message.answer(
+        "🧼 Режим: *Очищение / Демакияж*.\n\n"
+        "Пришлите состав средства (пенка, гель, гидрофильное масло). "
+        "Я оценю его с учётом этой категории.",
+        parse_mode="Markdown",
+        reply_markup=get_mode_keyboard()
+    )
+
+
+@dp.message(F.text == "🧴 Несмываемый уход")
+async def set_mode_care(message: types.Message, state: FSMContext):
+    await state.update_data(category="care")
+    await message.answer(
+        "🧴 Режим: *Несмываемый уход*.\n\n"
+        "Пришлите состав средства (крем, сыворотка, тоник). "
+        "Я оценю его с учётом этой категории.",
+        parse_mode="Markdown",
+        reply_markup=get_mode_keyboard()
+    )
 
 
 # ================== ВЕТКА «РОМАН АНДРЕЕВИЧ» ==================
@@ -421,31 +438,14 @@ async def finish_survey(message: types.Message, state: FSMContext):
 async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.message.answer(
-        "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня в деле.\n\n"
-        "Перед тем как прислать состав, выберите категорию средства:",
-        reply_markup=get_category_keyboard()
+        "Отличный план! Я даю вам 2 бесплатные проверки.\n\n"
+        "Перед отправкой состава выберите режим внизу экрана:\n"
+        "🧼 Очищение — для пенок, гелей, гидрофильных масел\n"
+        "🧴 Несмываемый уход — для кремов, сывороток, тоников\n\n"
+        "После выбора пришлите фото состава или текст INCI.",
+        reply_markup=get_mode_keyboard()
     )
-    await state.set_state(Form.waiting_for_category)
-    await callback.answer()
-
-
-# ================== ВЫБОР КАТЕГОРИИ ==================
-@dp.callback_query(F.data.startswith("cat_"))
-async def process_category(callback: types.CallbackQuery, state: FSMContext):
-    category = callback.data.split("_", 1)[1]  # leave_on или cleansing
-    await state.update_data(product_category=category)
     await state.set_state(Form.waiting_for_composition)
-
-    cat_name = "Демакияж / Очищение" if category == "cleansing" else "Несмываемый уход"
-
-    await callback.message.delete()
-    await callback.message.answer(
-        f"✅ Категория: *{cat_name}*.\n\n"
-        f"Теперь пришлите фото состава (INCI) или скопируйте текст. "
-        f"Проверим, безопасно ли оно для вашей кожи!",
-        parse_mode="Markdown",
-        reply_markup=get_main_keyboard()
-    )
     await callback.answer()
 
 
@@ -494,7 +494,21 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(user_id)
     data = await state.get_data()
     user_name = data.get("user_name", "")
-    category = data.get("product_category", "leave_on")
+    category_fsm = data.get("category", None)
+
+    if not category_fsm:
+        await message.answer(
+            "⚠️ Сначала выберите режим внизу экрана:\n"
+            "🧼 Очищение или 🧴 Несмываемый уход",
+            reply_markup=get_mode_keyboard()
+        )
+        return
+
+    # ===== СКЛЕЙКА ПРОМПТА =====
+    if category_fsm == "wash":
+        category = "cleansing"
+    else:
+        category = "leave_on"
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
@@ -505,8 +519,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
             "необходимо оформить полный доступ к алгоритму. Стоимость безлимитного "
             "доступа — 1000 рублей.\n\n"
             "Важно: после оплаты алгоритм будет жёстко откалиброван под ваши ответы "
-            "в анкете. Не используйте меня для проверки косметики подруг — анализ "
-            "чужих средств собьёт настройки вашего профиля.",
+            "в анкете.",
             reply_markup=get_subscription_keyboard()
         )
         return
@@ -570,7 +583,7 @@ async def process_composition(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(user_id)
     data = await state.get_data()
     user_name = data.get("user_name", "")
-    category = data.get("product_category", "leave_on")
+    category_fsm = data.get("category", None)
 
     if message.text in ["📋 Моя подписка", "🆘 Помощь"]:
         if message.text == "📋 Моя подписка":
@@ -579,6 +592,20 @@ async def process_composition(message: types.Message, state: FSMContext):
             await help_text(message)
         return
 
+    if not category_fsm:
+        await message.answer(
+            "⚠️ Сначала выберите режим внизу экрана:\n"
+            "🧼 Очищение или 🧴 Несмываемый уход",
+            reply_markup=get_mode_keyboard()
+        )
+        return
+
+    # ===== СКЛЕЙКА ПРОМПТА =====
+    if category_fsm == "wash":
+        category = "cleansing"
+    else:
+        category = "leave_on"
+
     is_unlimited = (user_id in UNLIMITED_IDS)
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
@@ -586,10 +613,7 @@ async def process_composition(message: types.Message, state: FSMContext):
             "Мой лимит на бесплатную базовую диагностику исчерпан.\n\n"
             "Если вы хотите проверить остальные составы и выявить скрытые угрозы, "
             "необходимо оформить полный доступ к алгоритму. Стоимость безлимитного "
-            "доступа — 1000 рублей.\n\n"
-            "Важно: после оплаты алгоритм будет жёстко откалиброван под ваши ответы "
-            "в анкете. Не используйте меня для проверки косметики подруг — анализ "
-            "чужих средств собьёт настройки вашего профиля.",
+            "доступа — 1000 рублей.",
             reply_markup=get_subscription_keyboard()
         )
         return
@@ -679,8 +703,11 @@ async def help_text(message: types.Message):
     await message.answer(
         "🤖 Я — Роман Андреевич, ИИ-аналитик косметических составов.\n\n"
         "1. Пройдите диагностику\n"
-        "2. Пришлите фото состава или текст (INCI)\n"
-        "3. Получите разбор\n\n"
+        "2. Выберите режим внизу экрана:\n"
+        "   🧼 Очищение — для пенок, гелей, гидрофильных масел\n"
+        "   🧴 Несмываемый уход — для кремов, сывороток, тоников\n"
+        "3. Пришлите фото состава или текст (INCI)\n"
+        "4. Получите разбор\n\n"
         "📌 Связь: @miroslavskayaboks"
     )
 
