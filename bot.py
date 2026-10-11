@@ -27,8 +27,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 
-# ===== БЕЗЛИМИТНЫЕ ID =====
-UNLIMITED_IDS = [MARIYA_ID, 1962088357]
+UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
@@ -51,6 +50,7 @@ class Form(StatesGroup):
     survey = State()
     waiting_for_medicine = State()
     waiting_for_allergy = State()
+    waiting_for_category = State()
     waiting_for_composition = State()
 
 # ================== КНОПКИ ==================
@@ -72,6 +72,13 @@ def get_path_keyboard():
         [InlineKeyboardButton(text="🛒 Пойду выбирать с Романом Андреевичем", callback_data="go_scanner")],
         [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
         [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
+    ])
+
+
+def get_category_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧴 Несмываемый уход (крем, сыворотка, тоник)", callback_data="cat_leave_on")],
+        [InlineKeyboardButton(text="💧 Демакияж / Очищение (масло, пенка, гель)", callback_data="cat_cleansing")],
     ])
 
 
@@ -163,13 +170,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username
     user = db.get_or_create_user(user_id, username)
-
-    # ===== ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ =====
-    logger.info(
-        f"🔍 /start: user_id={user_id}, UNLIMITED_IDS={UNLIMITED_IDS}, "
-        f"survey_done={user.get('survey_done')}, "
-        f"completed_at={user.get('survey_completed_at')}"
-    )
 
     # ===== ПРОВЕРКА КАРАНТИНА (только для обычных) =====
     if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
@@ -387,7 +387,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
     user_name = data.get("user_name", "Клиент")
     user_id = message.chat.id
 
-    # ===== ФИКСИРУЕМ ЗАВЕРШЕНИЕ АНКЕТЫ (кроме безлимитных) =====
     db.update_user_tags(user_id, tags)
     if user_id not in UNLIMITED_IDS:
         db.mark_survey_completed(user_id)
@@ -414,7 +413,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
     )
 
     await state.clear()
-    await state.set_state(Form.waiting_for_composition)
+    await state.set_state(Form.waiting_for_category)
 
 
 # ================== ВЕТКА «РОМАН АНДРЕЕВИЧ» ==================
@@ -423,12 +422,30 @@ async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.message.answer(
         "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня в деле.\n\n"
-        "Прямо сейчас откройте сайт любого косметического магазина (или подойдите к полке), "
-        "найдите средство, которое хотите купить или уже используете, и пришлите мне "
-        "фото его состава (INCI) или скопируйте текст. Проверим, безопасно ли оно для вашей кожи!",
+        "Перед тем как прислать состав, выберите категорию средства:",
+        reply_markup=get_category_keyboard()
+    )
+    await state.set_state(Form.waiting_for_category)
+    await callback.answer()
+
+
+# ================== ВЫБОР КАТЕГОРИИ ==================
+@dp.callback_query(F.data.startswith("cat_"))
+async def process_category(callback: types.CallbackQuery, state: FSMContext):
+    category = callback.data.split("_", 1)[1]  # leave_on или cleansing
+    await state.update_data(product_category=category)
+    await state.set_state(Form.waiting_for_composition)
+
+    cat_name = "Демакияж / Очищение" if category == "cleansing" else "Несмываемый уход"
+
+    await callback.message.delete()
+    await callback.message.answer(
+        f"✅ Категория: *{cat_name}*.\n\n"
+        f"Теперь пришлите фото состава (INCI) или скопируйте текст. "
+        f"Проверим, безопасно ли оно для вашей кожи!",
+        parse_mode="Markdown",
         reply_markup=get_main_keyboard()
     )
-    await state.set_state(Form.waiting_for_composition)
     await callback.answer()
 
 
@@ -475,10 +492,11 @@ async def want_mariya_box(callback: types.CallbackQuery, state: FSMContext):
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
-    user_name = (await state.get_data()).get("user_name", "")
+    data = await state.get_data()
+    user_name = data.get("user_name", "")
+    category = data.get("product_category", "leave_on")
 
     is_unlimited = (user_id in UNLIMITED_IDS)
-    logger.info(f"🔍 ФОТО: user_id={user_id}, is_unlimited={is_unlimited}")
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
@@ -509,7 +527,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     tags = user.get("tags", [])
 
     try:
-        result = await analyze_composition_photo(photo_url, tags, user_name)
+        result = await analyze_composition_photo(photo_url, tags, user_name, category)
         verdict = result["verdict"]
         status = result["status"]
 
@@ -550,7 +568,9 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
-    user_name = (await state.get_data()).get("user_name", "")
+    data = await state.get_data()
+    user_name = data.get("user_name", "")
+    category = data.get("product_category", "leave_on")
 
     if message.text in ["📋 Моя подписка", "🆘 Помощь"]:
         if message.text == "📋 Моя подписка":
@@ -560,7 +580,6 @@ async def process_composition(message: types.Message, state: FSMContext):
         return
 
     is_unlimited = (user_id in UNLIMITED_IDS)
-    logger.info(f"🔍 ТЕКСТ: user_id={user_id}, is_unlimited={is_unlimited}")
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
@@ -581,7 +600,7 @@ async def process_composition(message: types.Message, state: FSMContext):
     await message.answer("🔬 Анализирую состав...")
 
     try:
-        result = await analyze_composition(composition, tags, user_name)
+        result = await analyze_composition(composition, tags, user_name, category)
         verdict = result["verdict"]
         status = result["status"]
 
