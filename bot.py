@@ -268,7 +268,8 @@ async def send_question(message: types.Message, state: FSMContext):
     )
 
 
-@dp.callback_query(F.data.startswith("back_"))
+# ================== НАЗАД (только back_0 .. back_5) ==================
+@dp.callback_query(F.data.regexp(r"^back_\d+$"))
 async def process_back(callback: types.CallbackQuery, state: FSMContext):
     step = int(callback.data.split("_")[1])
     new_step = step - 1
@@ -287,7 +288,8 @@ async def process_back(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@dp.callback_query(F.data.startswith("q_"))
+# ================== ОТВЕТЫ (только q_0_xxx, q_1_xxx и т.д.) ==================
+@dp.callback_query(F.data.regexp(r"^q_\d+_.+$"))
 async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     parts = callback.data.split("_", 2)
     step = int(parts[1])
@@ -331,10 +333,8 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
 
     # ===== Вопрос 1: «Ничего не беспокоит» → авто-переход =====
     if step == 0 and tag == "normal":
-        # Удаляем все теги, относящиеся к Вопросу 1
         q1_tags = [t for _, t in SURVEY_QUESTIONS[0]["options"] if t]
         tags = [t for t in tags if t not in q1_tags]
-        # Добавляем "normal"
         tags.append("normal")
         await state.update_data(tags=tags, survey_step=1)
         await callback.message.delete()
@@ -342,7 +342,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== Вопрос 1: другой тег → убираем "normal", если он был =====
+    # ===== Вопрос 1: другой тег → убираем "normal" =====
     if step == 0 and tag != "normal" and "normal" in tags:
         tags.remove("normal")
         await state.update_data(tags=tags)
