@@ -13,7 +13,7 @@ client = AsyncOpenAI(
 )
 
 # ================== НАСТРОЙКИ МОДЕЛИ ==================
-MODEL_NAME = "anthropic/claude-3.5-sonnet"
+MODEL_NAME = "anthropic/claude-sonnet-4.5"  # ← обновлённый ID
 TEMPERATURE_ANALYSIS = 0.2
 TEMPERATURE_DIAGNOSIS = 0.4
 MAX_TOKENS = 300
@@ -196,7 +196,6 @@ async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) ->
         usage = response.usage
         if usage:
             cached_tokens = 0
-            # Пробуем достать cached_tokens из разных возможных мест
             try:
                 if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
                     cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
