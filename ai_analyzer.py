@@ -13,7 +13,7 @@ client = AsyncOpenAI(
 )
 
 # ================== НАСТРОЙКИ МОДЕЛИ ==================
-MODEL_NAME = "google/gemini-3.1-flash-lite"
+MODEL_NAME = "anthropic/claude-3.5-sonnet"
 TEMPERATURE_ANALYSIS = 0.2
 TEMPERATURE_DIAGNOSIS = 0.4
 MAX_TOKENS = 300
@@ -192,6 +192,25 @@ async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) ->
             logger.error("Модель вернула пустой ответ")
             return ""
 
+        # ===== ЛОГИРОВАНИЕ КЭША =====
+        usage = response.usage
+        if usage:
+            cached_tokens = 0
+            # Пробуем достать cached_tokens из разных возможных мест
+            try:
+                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
+                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+                elif hasattr(usage, "cached_tokens"):
+                    cached_tokens = usage.cached_tokens or 0
+            except Exception:
+                cached_tokens = 0
+
+            logger.info(
+                f"📊 Токены: вход={usage.prompt_tokens}, "
+                f"из кэша={cached_tokens}, "
+                f"выход={usage.completion_tokens}"
+            )
+
         content = response.choices[0].message.content
         if not content:
             logger.error("Модель вернула пустой текст")
@@ -317,6 +336,24 @@ async def analyze_composition_photo(photo_url: str, tags: list, user_name: str =
         if not response or not response.choices:
             logger.error("Модель вернула пустой ответ (фото)")
             return {"verdict": "⚪ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте ещё раз.", "status": "error"}
+
+        # ===== ЛОГИРОВАНИЕ КЭША (фото) =====
+        usage = response.usage
+        if usage:
+            cached_tokens = 0
+            try:
+                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
+                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+                elif hasattr(usage, "cached_tokens"):
+                    cached_tokens = usage.cached_tokens or 0
+            except Exception:
+                cached_tokens = 0
+
+            logger.info(
+                f"📊 [ФОТО] Токены: вход={usage.prompt_tokens}, "
+                f"из кэша={cached_tokens}, "
+                f"выход={usage.completion_tokens}"
+            )
 
         result = response.choices[0].message.content
 
