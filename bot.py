@@ -170,6 +170,29 @@ SURVEY_QUESTIONS = [
 ]
 
 
+# ================== ВСПОМОГАТЕЛЬНАЯ: получение имени ==================
+async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
+    """Достаёт имя: FSM → БД → Telegram-профиль. Никогда не возвращает пустую строку."""
+    data = await state.get_data()
+    name = data.get("user_name")
+
+    if not name:
+        # Пробуем из БД
+        try:
+            name = db.get_user_name(message.from_user.id)
+        except Exception:
+            name = None
+
+    if not name:
+        name = message.from_user.first_name or "Клиент"
+
+    # Заодно кладём обратно в FSM, чтобы в следующий раз не искать
+    if data.get("user_name") != name:
+        await state.update_data(user_name=name)
+
+    return name
+
+
 # ================== /START ==================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -231,7 +254,16 @@ async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(StateFilter(Form.waiting_for_name))
 async def process_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
+
+    # Сохраняем в FSM
     await state.update_data(user_name=name)
+
+    # Сохраняем в БД (с защитой — если функции ещё нет, не падаем)
+    try:
+        db.update_user_name(message.from_user.id, name)
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить имя в БД (нет функции update_user_name?): {e}")
+
     await state.set_state(Form.survey)
     await state.update_data(survey_step=0, tags=[])
 
@@ -298,7 +330,6 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
 
-    # ===== Готово =====
     if tag == "done":
         await state.update_data(survey_step=step + 1)
         await callback.message.delete()
@@ -306,7 +337,6 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== «Другое» (Вопрос 5) =====
     if step == 4 and tag == "medicine_other":
         await state.set_state(Form.waiting_for_medicine)
         await callback.message.delete()
@@ -314,7 +344,6 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== Вопрос 6: аллергия =====
     if step == 5:
         if tag == "no_allergy":
             await state.update_data(survey_step=6)
@@ -331,7 +360,6 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
             await callback.answer()
             return
 
-    # ===== Вопрос 1: «Ничего не беспокоит» → авто-переход =====
     if step == 0 and tag == "normal":
         q1_tags = [t for _, t in SURVEY_QUESTIONS[0]["options"] if t]
         tags = [t for t in tags if t not in q1_tags]
@@ -342,12 +370,10 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== Вопрос 1: другой тег → убираем "normal" =====
     if step == 0 and tag != "normal" and "normal" in tags:
         tags.remove("normal")
         await state.update_data(tags=tags)
 
-    # ===== Обычное добавление тега =====
     if tag != "none" and tag not in tags:
         tags.append(tag)
         await state.update_data(tags=tags)
@@ -404,7 +430,20 @@ async def process_allergy(message: types.Message, state: FSMContext):
 async def finish_survey(message: types.Message, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
-    user_name = data.get("user_name", "Клиент")
+
+    # ===== Имя: FSM → БД → Telegram-профиль =====
+    user_name = data.get("user_name")
+    if not user_name:
+        try:
+            user_name = db.get_user_name(message.chat.id)
+        except Exception:
+            user_name = None
+    if not user_name:
+        user_name = message.from_user.first_name or "Клиент"
+
+    # Кладём обратно в FSM, чтобы дальше не искать
+    await state.update_data(user_name=user_name)
+
     user_id = message.chat.id
 
     db.update_user_tags(user_id, tags)
@@ -436,14 +475,22 @@ async def finish_survey(message: types.Message, state: FSMContext):
         reply_markup=get_path_keyboard()
     )
 
-    await state.clear()
+    # ===== КРИТИЧНО: НЕ вызываем state.clear() — там user_name и tags! =====
+    # Просто переключаем состояние, данные остаются в FSM.
     await state.set_state(Form.waiting_for_composition)
 
 
 # ================== ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ ==================
 @dp.message(F.text == "🧼 Очищение")
 async def set_mode_wash(message: types.Message, state: FSMContext):
+    user = db.get_or_create_user(message.from_user.id)
+
+    # Подстраховка: если FSM потерял имя — восстанавливаем
+    await _resolve_user_name(message, state, user)
+
+    # Обновляем только категорию, НЕ трогая user_name и tags
     await state.update_data(category="wash")
+
     await message.answer(
         "🧼 Режим: *Очищение / Демакияж*.\n\n"
         "Пришлите состав средства (пенка, гель, гидрофильное масло). "
@@ -455,7 +502,14 @@ async def set_mode_wash(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "🧴 Несмываемый уход")
 async def set_mode_care(message: types.Message, state: FSMContext):
+    user = db.get_or_create_user(message.from_user.id)
+
+    # Подстраховка: если FSM потерял имя — восстанавливаем
+    await _resolve_user_name(message, state, user)
+
+    # Обновляем только категорию, НЕ трогая user_name и tags
     await state.update_data(category="care")
+
     await message.answer(
         "🧴 Режим: *Несмываемый уход*.\n\n"
         "Пришлите состав средства (крем, сыворотка, тоник). "
@@ -488,6 +542,11 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
         "коже по протоколу.",
         reply_markup=get_offer_mariya_keyboard()
     )
+
+    # Подстраховка по имени
+    user = db.get_or_create_user(message.from_user.id)
+    await _resolve_user_name(message, state, user)
+
     current_state = await state.get_state()
     if current_state != Form.waiting_for_composition:
         await state.set_state(Form.waiting_for_composition)
@@ -584,8 +643,11 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
+
+    # Имя: FSM → БД → Telegram-профиль
+    user_name = await _resolve_user_name(message, state, user)
+
     data = await state.get_data()
-    user_name = data.get("user_name", "")
     category_fsm = data.get("category", None)
 
     if not category_fsm:
@@ -674,8 +736,11 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
+
+    # Имя: FSM → БД → Telegram-профиль
+    user_name = await _resolve_user_name(message, state, user)
+
     data = await state.get_data()
-    user_name = data.get("user_name", "")
     category_fsm = data.get("category", None)
 
     if not category_fsm:
