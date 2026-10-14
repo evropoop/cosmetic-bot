@@ -544,6 +544,11 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         verdict = result["verdict"]
         status = result["status"]
 
+        # ===== НОВОЕ: при системной ошибке не списываем лимит и не сохраняем анализ =====
+        if status == "error":
+            await message.answer(verdict)
+            return
+
         db.save_analysis(user_id, f"[ФОТО] {file_id}", verdict, status)
 
         if status in ["bad", "hidden_threat"]:
@@ -627,6 +632,11 @@ async def process_composition(message: types.Message, state: FSMContext):
         result = await analyze_composition(composition, tags, user_name, category)
         verdict = result["verdict"]
         status = result["status"]
+
+        # ===== НОВОЕ: при системной ошибке не списываем лимит и не сохраняем анализ =====
+        if status == "error":
+            await message.answer(verdict)
+            return
 
         db.save_analysis(user_id, composition, verdict, status)
 
