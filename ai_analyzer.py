@@ -163,6 +163,7 @@ TAG_MAP = {
     "reactive": "Реактивность",
     "medicine": "Медицина",
     "pregnancy": "Беременность",
+    "normal": "Нормально",
 }
 
 
@@ -184,14 +185,12 @@ def _translate_tags(tags: list) -> str:
 
 # ================== СБОРКА ПРОМПТА ==================
 def _get_matrix(category: str) -> str:
-    """Возвращает нужную матрицу в зависимости от категории."""
     if category == "cleansing":
         return MATRIX_WASH
     return MATRIX_CARE
 
 
 def _build_system_prompt(category: str) -> str:
-    """Собирает: BASE_PROMPT + MATRIX + EXAMPLES_BLOCK (по ТЗ БЛОК 6)."""
     return BASE_PROMPT + "\n\n" + _get_matrix(category) + "\n\n" + EXAMPLES_BLOCK
 
 
@@ -217,9 +216,6 @@ def _get_status(result: str) -> str:
 
 # ================== ОБРЕЗКА + ЗАЩИТА ОТ ЭХА ==================
 def _safe_trim(text: str, limit: int = 400) -> str:
-    """Умная обрезка текста по последнему предложению + защита от эха промпта."""
-
-    # Защита от эха: если модель начала повторять промпт — выкидываем всё до первого эмодзи-статуса
     echo_markers = [
         "РОЛЬ И ТОНАЛЬНОСТЬ", "БЛОК 3", "ШАБЛОНЫ ДЛЯ СТАРТА",
         "МАТРИЦА", "ПРАВИЛО 1:", "БРОНЯ ОТ", "ПРИМЕРЫ ЭТАЛОННЫХ",
@@ -229,7 +225,6 @@ def _safe_trim(text: str, limit: int = 400) -> str:
         for emoji in ["🔴", "🟠", "🟡", "🟢", "⚪", "🔵", "⚠️"]:
             idx = text.find(emoji)
             if idx != -1:
-                # Отрезаем до начала предыдущего предложения (имя клиента)
                 pre = text[:idx]
                 dot = pre.rfind(".")
                 if dot != -1 and dot > 50:
@@ -256,8 +251,6 @@ def _safe_trim(text: str, limit: int = 400) -> str:
 
 # ================== ЯДРО: ВЫЗОВ МОДЕЛИ ==================
 async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) -> str:
-    """Один вызов LLM. Склеивает всё в один user-message (Claude через Polza)."""
-
     combined = f"""{system_prompt}
 
 ==========================
@@ -276,9 +269,7 @@ async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) ->
     try:
         response = await client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[
-                {"role": "user", "content": combined}
-            ],
+            messages=[{"role": "user", "content": combined}],
             temperature=temperature,
             max_tokens=MAX_TOKENS,
         )
@@ -287,7 +278,6 @@ async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) ->
             logger.error("Модель вернула пустой ответ")
             return ""
 
-        # Логирование кэша
         usage = response.usage
         if usage:
             cached_tokens = 0
@@ -318,8 +308,6 @@ async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) ->
 
 
 async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
-    """Вызов LLM с одним ретраем при системной ошибке."""
-
     result_text = await _call_llm(system_prompt, user_prompt, TEMPERATURE_ANALYSIS)
 
     if result_text:
@@ -344,7 +332,6 @@ async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
 
 # ================== АНАЛИЗ ТЕКСТОВОГО СОСТАВА ==================
 async def analyze_composition(composition: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
-    """Анализ текстового состава (строго до 400 символов)."""
     tags_str = _translate_tags(tags)
 
     if len(composition) > 2000:
@@ -361,7 +348,6 @@ async def analyze_composition(composition: str, tags: list, user_name: str = "",
 
 # ================== АНАЛИЗ ФОТО СОСТАВА ==================
 async def analyze_composition_photo(photo_url: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
-    """Анализ состава по фото (строго до 400 символов)."""
     tags_str = _translate_tags(tags)
 
     system_prompt = _build_system_prompt(category)
@@ -439,7 +425,6 @@ async def analyze_composition_photo(photo_url: str, tags: list, user_name: str =
 
 # ================== ГЕНЕРАЦИЯ ДИАГНОЗА ==================
 async def generate_diagnosis(name: str, tags: list) -> str:
-    """Генерирует короткий диагноз (строго до 400 символов)."""
     tags_str = _translate_tags(tags)
 
     has_allergy = any(t.startswith("allergy_") for t in tags)
