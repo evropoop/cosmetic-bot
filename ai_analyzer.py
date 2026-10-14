@@ -151,6 +151,38 @@ EXAMPLES_BLOCK = """# ================== ПРИМЕРЫ ЭТАЛОННЫХ ОТ�
 """
 
 
+# ================== МАППИНГ ТЕГОВ (ENG → RU) ==================
+TAG_MAP = {
+    "problem": "Проблемная",
+    "barrier_broken": "Сломан барьер",
+    "fat_compensatory": "Компенсаторная жирность",
+    "fat": "Жирность",
+    "dry": "Сухость",
+    "pigment": "Пигментация",
+    "age": "Возрастные изменения",
+    "reactive": "Реактивность",
+    "medicine": "Медицина",
+    "pregnancy": "Беременность",
+}
+
+
+def _translate_tags(tags: list) -> str:
+    """Переводит английские теги в русские для промпта."""
+    if not tags:
+        return "нет тегов"
+    result = []
+    for t in tags:
+        if t.startswith("allergy_"):
+            name = t[len("allergy_"):]
+            result.append(f"Аллергия на {name}")
+        elif t in TAG_MAP:
+            result.append(TAG_MAP[t])
+        else:
+            result.append(t)
+    return ", ".join(result)
+
+
+# ================== СБОРКА ПРОМПТА ==================
 def _get_matrix(category: str) -> str:
     """Возвращает нужную матрицу в зависимости от категории."""
     if category == "cleansing":
@@ -158,6 +190,12 @@ def _get_matrix(category: str) -> str:
     return MATRIX_CARE
 
 
+def _build_system_prompt(category: str) -> str:
+    """Собирает: BASE_PROMPT + MATRIX + EXAMPLES_BLOCK (по ТЗ БЛОК 6)."""
+    return BASE_PROMPT + "\n\n" + _get_matrix(category) + "\n\n" + EXAMPLES_BLOCK
+
+
+# ================== ОПРЕДЕЛЕНИЕ СТАТУСА ==================
 def _get_status(result: str) -> str:
     if "🔴" in result:
         return "bad"
@@ -177,6 +215,7 @@ def _get_status(result: str) -> str:
         return "unknown"
 
 
+# ================== ОБРЕЗКА + ЗАЩИТА ОТ ЭХА ==================
 def _safe_trim(text: str, limit: int = 400) -> str:
     """Умная обрезка текста по последнему предложению + защита от эха промпта."""
 
@@ -192,7 +231,6 @@ def _safe_trim(text: str, limit: int = 400) -> str:
             if idx != -1:
                 # Отрезаем до начала предыдущего предложения (имя клиента)
                 pre = text[:idx]
-                # Ищем последнюю точку перед эмодзи
                 dot = pre.rfind(".")
                 if dot != -1 and dot > 50:
                     text = text[dot + 1:].strip()
@@ -216,12 +254,7 @@ def _safe_trim(text: str, limit: int = 400) -> str:
     return text[:limit]
 
 
-def _build_system_prompt(category: str) -> str:
-    """Собирает: BASE_PROMPT + MATRIX + EXAMPLES_BLOCK (по ТЗ БЛОК 6)."""
-    return BASE_PROMPT + "\n\n" + _get_matrix(category) + "\n\n" + EXAMPLES_BLOCK
-
-
-# ================== ЯДРО: ВЫЗОВ МОДЕЛИ + РЕТРАЙ ==================
+# ================== ЯДРО: ВЫЗОВ МОДЕЛИ ==================
 async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) -> str:
     """Один вызов LLM. Склеивает всё в один user-message (Claude через Polza)."""
 
@@ -312,7 +345,7 @@ async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
 # ================== АНАЛИЗ ТЕКСТОВОГО СОСТАВА ==================
 async def analyze_composition(composition: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
     """Анализ текстового состава (строго до 400 символов)."""
-    tags_str = ", ".join(tags) if tags else "нет тегов"
+    tags_str = _translate_tags(tags)
 
     if len(composition) > 2000:
         composition = composition[:2000] + "..."
@@ -329,7 +362,7 @@ async def analyze_composition(composition: str, tags: list, user_name: str = "",
 # ================== АНАЛИЗ ФОТО СОСТАВА ==================
 async def analyze_composition_photo(photo_url: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
     """Анализ состава по фото (строго до 400 символов)."""
-    tags_str = ", ".join(tags) if tags else "нет тегов"
+    tags_str = _translate_tags(tags)
 
     system_prompt = _build_system_prompt(category)
 
@@ -407,7 +440,7 @@ async def analyze_composition_photo(photo_url: str, tags: list, user_name: str =
 # ================== ГЕНЕРАЦИЯ ДИАГНОЗА ==================
 async def generate_diagnosis(name: str, tags: list) -> str:
     """Генерирует короткий диагноз (строго до 400 символов)."""
-    tags_str = ", ".join(tags) if tags else "нет тегов"
+    tags_str = _translate_tags(tags)
 
     has_allergy = any(t.startswith("allergy_") for t in tags)
     has_medicine = "medicine" in tags
