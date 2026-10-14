@@ -30,7 +30,6 @@ MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
-
 MARIYA_URL = "https://t.me/miroslavskayaboks"
 
 if not BOT_TOKEN:
@@ -58,7 +57,6 @@ class Form(StatesGroup):
 
 # ================== КЛАВИАТУРЫ ==================
 def get_mode_keyboard():
-    """Нижняя клавиатура — ТРИ кнопки по новому ТЗ (БЛОК 5)."""
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🧼 Очищение")],
         [KeyboardButton(text="🧴 Несмываемый уход")],
@@ -73,7 +71,6 @@ def get_start_keyboard():
 
 
 def get_path_keyboard():
-    """Три кнопки развилки (Шаг 3)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Пойду проверять с Романом Андреевичем", callback_data="go_scanner")],
         [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
@@ -82,7 +79,6 @@ def get_path_keyboard():
 
 
 def get_subscription_keyboard():
-    """Пэйвол (Шаг 5) — два тарифа."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
         [InlineKeyboardButton(text="Восстановление (90 дней) — 2500 ₽", callback_data="pay_restore_90")],
@@ -90,7 +86,6 @@ def get_subscription_keyboard():
 
 
 def get_offer_mariya_keyboard():
-    """Шаг 6 — ветка «Готовый уход от Марии»."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Написать Марии", url=MARIYA_URL)],
         [InlineKeyboardButton(text="🤖 Пойти в магазин с Романом Андреевичем", callback_data="back_to_scanner")],
@@ -98,7 +93,6 @@ def get_offer_mariya_keyboard():
 
 
 def get_offer_scratch_keyboard():
-    """Шаг 7 — ветка «С чистого листа»."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Забрать готовый уход у Марии", url=MARIYA_URL)],
         [InlineKeyboardButton(text="🤖 Пойти собирать уход с Романом Андреевичем", callback_data="back_to_scanner")],
@@ -119,6 +113,7 @@ SURVEY_QUESTIONS = [
             ("Пигментация / постакне", "pigment"),
             ("Морщины / потеря тонуса", "age"),
             ("Покраснения / купероз", "reactive"),
+            ("Ничего не беспокоит", "normal"),
         ],
         "multi": True,
     },
@@ -182,7 +177,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     user = db.get_or_create_user(user_id, username)
 
-    # Проверка карантина (только для обычных)
     if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
         completed_at = user.get("survey_completed_at")
         if completed_at:
@@ -302,6 +296,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
 
+    # ===== Готово =====
     if tag == "done":
         await state.update_data(survey_step=step + 1)
         await callback.message.delete()
@@ -309,6 +304,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
+    # ===== «Другое» (Вопрос 5) =====
     if step == 4 and tag == "medicine_other":
         await state.set_state(Form.waiting_for_medicine)
         await callback.message.delete()
@@ -316,6 +312,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
+    # ===== Вопрос 6: аллергия =====
     if step == 5:
         if tag == "no_allergy":
             await state.update_data(survey_step=6)
@@ -332,6 +329,25 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
             await callback.answer()
             return
 
+    # ===== Вопрос 1: «Ничего не беспокоит» → авто-переход =====
+    if step == 0 and tag == "normal":
+        # Удаляем все теги, относящиеся к Вопросу 1
+        q1_tags = [t for _, t in SURVEY_QUESTIONS[0]["options"] if t]
+        tags = [t for t in tags if t not in q1_tags]
+        # Добавляем "normal"
+        tags.append("normal")
+        await state.update_data(tags=tags, survey_step=1)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+        await callback.answer()
+        return
+
+    # ===== Вопрос 1: другой тег → убираем "normal", если он был =====
+    if step == 0 and tag != "normal" and "normal" in tags:
+        tags.remove("normal")
+        await state.update_data(tags=tags)
+
+    # ===== Обычное добавление тега =====
     if tag != "none" and tag not in tags:
         tags.append(tag)
         await state.update_data(tags=tags)
@@ -398,7 +414,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
     else:
         logger.info(f"👑 Безлимит: карантин НЕ активирован для user_id={user_id}")
 
-    # ===== Одна «живая» плашка вместо двух сообщений =====
     loading_msg = await message.answer("🔬 Анализирую ваши ответы...")
 
     try:
@@ -413,7 +428,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
         logger.error(f"Не удалось отредактировать сообщение: {e}")
         await message.answer(diagnosis)
 
-    # ===== Текст развилки (Шаг 3) =====
     await message.answer(
         "Диагностика завершена. Теперь нам нужно выстроить безопасный физиологичный уход. "
         "Вы можете собрать его самостоятельно, проверяя каждое средство вместе со мной, "
@@ -452,10 +466,8 @@ async def set_mode_care(message: types.Message, state: FSMContext):
 
 
 # ================== ТРИГГЕР ПРОДАЖ: «👑 Готовый уход от Марии» ==================
-# Этот хендлер должен быть ДО process_composition, чтобы перехватывать кнопку раньше
 @dp.message(F.text == "👑 Готовый уход от Марии")
 async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
-    """По ТЗ БЛОК 5: моментально присылает оффер Шага 6, не прерывая работу сканера."""
     await message.answer(
         "Отличное решение. Делегировать подбор ухода специалисту — это самый быстрый путь "
         "к здоровой коже. Зачем тратить время на разбор составов и тестирование косметики "
@@ -476,7 +488,6 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
         "коже по протоколу.",
         reply_markup=get_offer_mariya_keyboard()
     )
-    # Режим сканера НЕ сбрасываем — по ТЗ он должен остаться активным
     current_state = await state.get_state()
     if current_state != Form.waiting_for_composition:
         await state.set_state(Form.waiting_for_composition)
@@ -592,7 +603,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
-    # ===== ПЭЙВОЛ (ШАГ 5) =====
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
             "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
@@ -683,7 +693,6 @@ async def process_composition(message: types.Message, state: FSMContext):
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
-    # ===== ПЭЙВОЛ (ШАГ 5) =====
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         await message.answer(
             "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
@@ -759,7 +768,7 @@ async def pay_restore_90(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# ================== ПОДПИСКА (по команде, кнопки в меню больше нет) ==================
+# ================== ПОДПИСКА ==================
 @dp.message(F.text == "/sub")
 async def my_subscription(message: types.Message):
     user_id = message.from_user.id
@@ -787,7 +796,7 @@ async def my_subscription(message: types.Message):
         )
 
 
-# ================== ПОМОЩЬ (по команде) ==================
+# ================== ПОМОЩЬ ==================
 @dp.message(F.text == "/help")
 async def help_text(message: types.Message):
     await message.answer(
