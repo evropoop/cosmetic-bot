@@ -544,7 +544,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         verdict = result["verdict"]
         status = result["status"]
 
-        # ===== НОВОЕ: при системной ошибке не списываем лимит и не сохраняем анализ =====
+        # ===== При системной ошибке не списываем лимит и не сохраняем анализ =====
         if status == "error":
             await message.answer(verdict)
             return
@@ -633,7 +633,7 @@ async def process_composition(message: types.Message, state: FSMContext):
         verdict = result["verdict"]
         status = result["status"]
 
-        # ===== НОВОЕ: при системной ошибке не списываем лимит и не сохраняем анализ =====
+        # ===== При системной ошибке не списываем лимит и не сохраняем анализ =====
         if status == "error":
             await message.answer(verdict)
             return
