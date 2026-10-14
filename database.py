@@ -28,6 +28,13 @@ def init_db():
     )
     """)
 
+    # ===== МИГРАЦИЯ: добавляем колонку user_name, если её нет =====
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "user_name" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN user_name TEXT")
+        print("🔄 Миграция: добавлена колонка user_name в таблицу users")
+
     # Таблица подписок
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS subscriptions (
@@ -85,7 +92,13 @@ def init_db():
 def get_or_create_user(user_id: int, username: str = None):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+
+    # Явные колонки — не зависим от порядка и будущих миграций
+    cursor.execute("""
+        SELECT user_id, username, tags, free_checks, bad_bottles_in_a_row,
+               survey_done, survey_completed_at, user_name
+        FROM users WHERE user_id = ?
+    """, (user_id,))
     row = cursor.fetchone()
 
     if not row:
@@ -103,7 +116,8 @@ def get_or_create_user(user_id: int, username: str = None):
             "free_checks": 2,
             "bad_bottles_in_a_row": 0,
             "survey_done": 0,
-            "survey_completed_at": None
+            "survey_completed_at": None,
+            "user_name": None
         }
 
     conn.close()
@@ -114,8 +128,33 @@ def get_or_create_user(user_id: int, username: str = None):
         "free_checks": row[3],
         "bad_bottles_in_a_row": row[4],
         "survey_done": row[5],
-        "survey_completed_at": row[6] if len(row) > 6 else None
+        "survey_completed_at": row[6],
+        "user_name": row[7] if len(row) > 7 else None
     }
+
+
+def update_user_name(user_id: int, name: str):
+    """Сохраняет имя из анкеты в БД."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET user_name = ?, updated_at = ? WHERE user_id = ?",
+        (name, datetime.now().isoformat(), user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_user_name(user_id: int) -> str:
+    """Возвращает сохранённое имя из БД (или пустую строку)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_name FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row[0]:
+        return row[0]
+    return ""
 
 
 def update_user_tags(user_id: int, tags: list):
