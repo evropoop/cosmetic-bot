@@ -161,7 +161,7 @@ def _build_system_prompt(category: str) -> str:
 
 # ================== ОПРЕДЕЛЕНИЕ СТАТУСА ==================
 def _get_status(result: str) -> str:
-    # ВАЖНО: ⚪ проверяется БЕЗ Variation Selector — покрывает оба варианта
+    # ⚪ проверяется БЕЗ Variation Selector — покрывает оба варианта эмодзи
     if "🔴" in result:
         return "bad"
     elif "🟠" in result:
@@ -300,7 +300,10 @@ async def analyze_composition(composition: str, tags: list, user_name: str = "",
         f"Имя клиента: {user_name or 'Клиент'}\n"
         f"Состояние кожи: {tags_str}\n"
         f"Категория средства: {'Очищение / Демакияж' if category == 'cleansing' else 'Несмываемый уход'}\n"
-        f"Состав (INCI): {composition}"
+        f"Состав (INCI): {composition}\n\n"
+        f"ВАЖНО: Если присланный текст НЕ является списком ингредиентов косметики (INCI) — "
+        f"это бессвязный набор слов, вопрос, жалоба, приветствие или что-то другое — "
+        f"верни СТРОГО одну строку: ⚠️ НЕДОСТАТОЧНО ДАННЫХ. И больше ничего."
     )
 
     return await _call_llm_with_retry(system_prompt, user_prompt)
@@ -316,7 +319,10 @@ async def analyze_composition_photo(photo_url: str, tags: list, user_name: str =
         f"Имя клиента: {user_name or 'Клиент'}\n"
         f"Состояние кожи: {tags_str}\n"
         f"Категория средства: {'Очищение / Демакияж' if category == 'cleansing' else 'Несмываемый уход'}\n"
-        f"На фото — состав (INCI). Прочитай и проанализируй."
+        f"На фото — состав (INCI). Прочитай и проанализируй.\n\n"
+        f"ВАЖНО: Если на фото НЕТ списка ингредиентов (INCI) — там лицо, еда, "
+        f"пейзаж, нечитаемое размытое пятно или что-то другое — верни СТРОГО одну строку: "
+        f"⚠️ НЕДОСТАТОЧНО ДАННЫХ. И больше ничего."
     )
 
     try:
