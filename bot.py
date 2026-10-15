@@ -57,7 +57,6 @@ class Form(StatesGroup):
 
 # ================== КЛАВИАТУРЫ ==================
 def get_mode_keyboard():
-    """Нижняя Reply-клавиатура."""
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🧼 Очищение")],
         [KeyboardButton(text="🧴 Несмываемый уход")],
@@ -66,7 +65,6 @@ def get_mode_keyboard():
 
 
 def get_next_category_keyboard():
-    """Inline-выбор категории для следующего средства (после вердикта)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🧼 Смываемое", callback_data="next_wash")],
         [InlineKeyboardButton(text="🧴 Несмываемое", callback_data="next_care")],
@@ -108,7 +106,7 @@ def get_offer_scratch_keyboard():
     ])
 
 
-# ================== АНКЕТА (6 ВОПРОСОВ) ==================
+# ================== АНКЕТА ==================
 SURVEY_QUESTIONS = [
     {
         "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
@@ -181,6 +179,10 @@ SURVEY_QUESTIONS = [
 
 # ================== RETENTION-УВЕДОМЛЕНИЯ ==================
 RETENTION_TEXTS = {
+    "1m": (
+        "Проверка завершена — доступ к полному алгоритму пока не активирован. "
+        "Если передумаете, я на связи."
+    ),
     "2h": (
         "Вы остановились на этапе активации доступа. Ваша анкета сохранена. "
         "Чтобы я мог проанализировать вашу косметичку и выстроить протокол "
@@ -189,7 +191,7 @@ RETENTION_TEXTS = {
     "24h": (
         "Прошли сутки с момента нашей паузы. Напоминаю, что каждый день "
         "использования неподходящей косметики усугубляет состояние гидролипидной "
-        "мантии. Давайте остановим этот процесс и проведем аудит прямо сейчас. "
+        "мантни. Давайте остановим этот процесс и проведем аудит прямо сейчас. "
         "Открываем доступ?"
     ),
     "48h": (
@@ -213,24 +215,22 @@ RETENTION_TEXTS = {
 
 
 async def _send_retention_notification(user_id: int, notif_type: str):
-    """Отправляет одно retention-уведомление."""
     text = RETENTION_TEXTS.get(notif_type)
     if not text:
         return
-
     try:
         await bot.send_message(
             user_id,
             f"🤖 Роман Андреевич: {text}",
             reply_markup=get_subscription_keyboard()
         )
-        logger.info(f"📨 Retention '{notif_type}' отправлено user_id={user_id}")
+        logger.info(f"📨 Retention '{notif_type}' → user_id={user_id}")
     except Exception as e:
         logger.warning(f"Не удалось отправить retention {notif_type} юзеру {user_id}: {e}")
 
 
 async def retention_worker():
-    """Фоновый воркер: раз в 5 минут проверяет БД и шлёт готовые уведомления."""
+    """Каждые 30 секунд проверяет БД и шлёт готовые уведомления."""
     logger.info("⏰ Retention-воркер запущен")
     while True:
         try:
@@ -241,12 +241,11 @@ async def retention_worker():
         except Exception as e:
             logger.error(f"Ошибка в retention-воркере: {e}")
 
-        await asyncio.sleep(300)   # 5 минут
+        await asyncio.sleep(30)
 
 
-# ================== ВСПОМОГАТЕЛЬНАЯ: получение имени ==================
+# ================== ВСПОМОГАТЕЛЬНАЯ: имя ==================
 async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
-    """Достаёт имя: FSM → БД → Telegram-профиль. Никогда не возвращает пустую строку."""
     data = await state.get_data()
     name = data.get("user_name")
 
@@ -317,7 +316,7 @@ async def code_box(message: types.Message, state: FSMContext):
     await cmd_start(message, state)
 
 
-# ================== НАЧАЛО ДИАГНОСТИКИ ==================
+# ================== СТАРТ ДИАГНОСТИКИ ==================
 @dp.callback_query(F.data == "start_diagnosis")
 async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
@@ -331,13 +330,11 @@ async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ИМЯ ==================
 @dp.message(StateFilter(Form.waiting_for_name))
 async def process_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
 
     await state.update_data(user_name=name)
-
     try:
         db.update_user_name(message.from_user.id, name)
     except Exception as e:
@@ -379,7 +376,6 @@ async def send_question(message: types.Message, state: FSMContext):
     )
 
 
-# ================== НАЗАД (только back_0 .. back_5) ==================
 @dp.callback_query(F.data.regexp(r"^back_\d+$"))
 async def process_back(callback: types.CallbackQuery, state: FSMContext):
     step = int(callback.data.split("_")[1])
@@ -399,7 +395,6 @@ async def process_back(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ОТВЕТЫ (только q_0_xxx, q_1_xxx и т.д.) ==================
 @dp.callback_query(F.data.regexp(r"^q_\d+_.+$"))
 async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     parts = callback.data.split("_", 2)
@@ -470,7 +465,6 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== «ДРУГОЕ» (ВОПРОС 5) ==================
 @dp.message(StateFilter(Form.waiting_for_medicine))
 async def process_medicine(message: types.Message, state: FSMContext):
     text = message.text.strip()
@@ -490,7 +484,6 @@ async def process_medicine(message: types.Message, state: FSMContext):
     await send_question(message, state)
 
 
-# ================== АЛЛЕРГИЯ (ВОПРОС 6) ==================
 @dp.message(StateFilter(Form.waiting_for_allergy))
 async def process_allergy(message: types.Message, state: FSMContext):
     allergy_text = message.text.strip()
@@ -505,7 +498,7 @@ async def process_allergy(message: types.Message, state: FSMContext):
     await send_question(message, state)
 
 
-# ================== ДИАГНОЗ ОТ ИИ + РАЗВИЛКА (ШАГ 3) ==================
+# ================== ДИАГНОЗ + РАЗВИЛКА ==================
 async def finish_survey(message: types.Message, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
@@ -552,11 +545,10 @@ async def finish_survey(message: types.Message, state: FSMContext):
         reply_markup=get_path_keyboard()
     )
 
-    # НЕ вызываем state.clear() — там user_name и tags!
     await state.set_state(Form.waiting_for_composition)
 
 
-# ================== ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ (Reply) ==================
+# ================== РЕЖИМЫ ==================
 @dp.message(F.text == "🧼 Очищение")
 async def set_mode_wash(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(message.from_user.id)
@@ -585,7 +577,6 @@ async def set_mode_care(message: types.Message, state: FSMContext):
     )
 
 
-# ================== INLINE-ВЫБОР КАТЕГОРИИ ДЛЯ СЛЕДУЮЩЕГО СРЕДСТВА ==================
 @dp.callback_query(F.data == "next_wash")
 async def next_category_wash(callback: types.CallbackQuery, state: FSMContext):
     try:
@@ -616,7 +607,7 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ТРИГГЕР ПРОДАЖ: «👑 Готовый уход от Марии» ==================
+# ================== ТРИГГЕР ПРОДАЖ ==================
 @dp.message(F.text == "👑 Готовый уход от Марии")
 async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
     await message.answer(
@@ -626,17 +617,9 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
         "ответственность за вашу кожу на себя. Выберите удобный формат работы:\n\n"
         "▫️ Digital-протокол (4 900 ₽) — уход в формате подробного PDF-руководства. "
         "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку "
-        "каждого средства и распишет понятную инструкцию (что и как наносить утром и вечером). "
-        "Вы покупаете всё сами по готовому списку. Этот файл останется с вами как надежная база: "
-        "Мария добавит позиции на перспективу, чтобы вы всегда знали, какими средствами "
-        "дополнить и усилить свой протокол.\n\n"
+        "каждого средства и распишет понятную инструкцию.\n\n"
         "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный формат ухода «под ключ». "
-        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
-        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
-        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение "
-        "от Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
-        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
-        "коже по протоколу.",
+        "Эстетичная коробка с полноразмерными средствами + ведение от Марии.",
         reply_markup=get_offer_mariya_keyboard()
     )
 
@@ -648,93 +631,66 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
         await state.set_state(Form.waiting_for_composition)
 
 
-# ================== ВЕТКА «РОМАН АНДРЕЕВИЧ» (ШАГ 4) ==================
+# ================== ШАГ 4 ==================
 @dp.callback_query(F.data == "go_scanner")
 async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.message.answer(
-        "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня "
-        "в деле. Прямо сейчас откройте сайт любого косметического магазина (или подойдите "
-        "к полке), найдите средство, которое хотите купить или уже используете, и пришлите "
-        "мне фото его состава (INCI). Проверим, безопасно ли оно для вашей кожи!",
+        "Отличный план! Я даю вам 2 бесплатные проверки. Прямо сейчас откройте сайт "
+        "любого косметического магазина (или подойдите к полке), найдите средство, "
+        "которое хотите купить или уже используете, и пришлите мне фото его состава (INCI).",
         reply_markup=get_mode_keyboard()
     )
     await state.set_state(Form.waiting_for_composition)
     await callback.answer()
 
 
-# ================== ВЕТКА «ГОТОВЫЙ УХОД ОТ МАРИИ» (ШАГ 6) ==================
+# ================== ШАГ 6 ==================
 @dp.callback_query(F.data == "want_mariya_box")
 async def want_mariya_box(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
     await callback.message.answer(
-        "Отличное решение. Делегировать подбор ухода специалисту — это самый быстрый путь "
-        "к здоровой коже. Зачем тратить время на разбор составов и тестирование косметики "
-        "вслепую, если можно сразу получить гарантированный результат? Мария берет "
-        "ответственность за вашу кожу на себя. Выберите удобный формат работы:\n\n"
-        "▫️ Digital-протокол (4 900 ₽) — уход в формате подробного PDF-руководства. "
-        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку "
-        "каждого средства и распишет понятную инструкцию (что и как наносить утром и вечером). "
-        "Вы покупаете всё сами по готовому списку. Этот файл останется с вами как надежная база: "
-        "Мария добавит позиции на перспективу, чтобы вы всегда знали, какими средствами "
-        "дополнить и усилить свой протокол.\n\n"
-        "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный формат ухода «под ключ». "
-        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
-        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
-        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение "
-        "от Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
-        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
-        "коже по протоколу.",
+        "Отличное решение. Мария берет ответственность за вашу кожу на себя.\n\n"
+        "▫️ Digital-протокол (4 900 ₽) — подробное PDF-руководство: подбор косметики "
+        "под ваш бюджет, прямые ссылки на покупку и инструкция по нанесению.\n\n"
+        "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный уход «под ключ»: "
+        "эстетичная коробка с полноразмерными средствами + постоянное ведение от Марии.",
         reply_markup=get_offer_mariya_keyboard()
     )
     await callback.answer()
 
 
-# ================== ВЕТКА «С ЧИСТОГО ЛИСТА» (ШАГ 7) ==================
+# ================== ШАГ 7 ==================
 @dp.callback_query(F.data == "no_care")
 async def no_care_branch(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
     await callback.message.answer(
         "Это идеальная ситуация! Выстроить грамотный фундамент с чистого листа гораздо "
-        "проще и дешевле, чем восстанавливать кожу после агрессивной косметики. Мы можем "
-        "собрать вашу первую косметичку вместе, проверяя средства перед покупкой, или вы "
-        "можете сразу забрать готовую систему от Марии, где всё продумано до мелочей:\n\n"
-        "▫️ Digital-протокол (4 900 ₽) — уход в формате подробного PDF-руководства. "
-        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку "
-        "каждого средства и распишет понятную инструкцию (что и как наносить утром и вечером). "
-        "Вы покупаете всё сами по готовому списку. Этот файл останется с вами как надежная база: "
-        "Мария добавит позиции на перспективу, чтобы вы всегда знали, какими средствами "
-        "дополнить и усилить свой протокол.\n\n"
-        "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный формат ухода «под ключ». "
-        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
-        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
-        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение "
-        "от Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
-        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
-        "коже по протоколу.",
+        "проще и дешевле, чем восстанавливать кожу после агрессивной косметики:\n\n"
+        "▫️ Digital-протокол (4 900 ₽) — подробное PDF-руководство: подбор косметики "
+        "под ваш бюджет, прямые ссылки на покупку и инструкция по нанесению.\n\n"
+        "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный уход «под ключ»: "
+        "эстетичная коробка с полноразмерными средствами + постоянное ведение от Марии.",
         reply_markup=get_offer_scratch_keyboard()
     )
     await callback.answer()
 
 
-# ================== ВОЗВРАТ К СКАНЕРУ ИЗ ШАГОВ 6/7 ==================
+# ================== ВОЗВРАТ В СКАНЕР ==================
 @dp.callback_query(F.data == "back_to_scanner")
 async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.message.answer(
-        "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня "
-        "в деле. Прямо сейчас откройте сайт любого косметического магазина (или подойдите "
-        "к полке), найдите средство, которое хотите купить или уже используете, и пришлите "
-        "мне фото его состава (INCI). Проверим, безопасно ли оно для вашей кожи!",
+        "Отличный план! Я даю вам 2 бесплатные проверки. Пришлите состав средства (INCI).",
         reply_markup=get_mode_keyboard()
     )
     await state.set_state(Form.waiting_for_composition)
     await callback.answer()
 
 
-# ================== ОБРАБОТКА ФОТО СОСТАВА ==================
+# ================== ФОТО СОСТАВА ==================
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -759,14 +715,13 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
+    # ===== ПЭЙВОЛ =====
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         db.schedule_retention_notifications(user_id)
         await message.answer(
             "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
             "остальные составы и выявить скрытые угрозы, необходимо оформить полный доступ. "
-            "Важно: после оплаты я буду жестко откалиброван под ваши ответы в анкете. "
-            "Не используйте меня для проверки косметики подруг — анализ чужих средств собьет "
-            "настройки вашего профиля.",
+            "Важно: после оплаты я буду жестко откалиброван под ваши ответы в анкете.",
             reply_markup=get_subscription_keyboard()
         )
         return
@@ -781,7 +736,9 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
     except Exception as e:
         logger.error(f"Не удалось получить файл: {e}")
-        await loading_msg.edit_text("❌ Не удалось загрузить фото. Попробуйте ещё раз.")
+        await loading_msg.edit_text(
+            "❌ Не удалось загрузить фото. Попробуйте ещё раз — лимит не списан."
+        )
         return
 
     tags = user.get("tags", [])
@@ -791,8 +748,14 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         verdict = result["verdict"]
         status = result["status"]
 
+        # ===== НЕ РАСПОЗНАЛ → НЕ СПИСЫВАЕМ =====
         if status == "error":
-            await loading_msg.edit_text(verdict)
+            await loading_msg.edit_text(
+                "⚠️ Не удалось распознать состав на этом фото.\n\n"
+                "Попробуйте прислать более чёткое фото (при хорошем свете, крупным планом) "
+                "или отправьте состав текстом.\n\n"
+                "Лимит не списан, попытка не засчитана."
+            )
             return
 
         db.save_analysis(user_id, f"[ФОТО] {file_id}", verdict, status)
@@ -820,7 +783,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         else:
             await loading_msg.edit_text(verdict)
 
-        # ===== СБРОС КАТЕГОРИИ + inline-выбор для следующего средства =====
         await state.update_data(category=None)
         await message.answer(
             "Проверим следующее средство? Уточните, оно смываемое или нет:",
@@ -829,10 +791,12 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка анализа фото: {e}")
-        await loading_msg.edit_text("❌ Ошибка при анализе фото. Попробуйте позже.")
+        await loading_msg.edit_text(
+            "❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан."
+        )
 
 
-# ================== ОБРАБОТКА ТЕКСТА СОСТАВА ==================
+# ================== ТЕКСТ СОСТАВА ==================
 @dp.message(StateFilter(Form.waiting_for_composition))
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -857,14 +821,13 @@ async def process_composition(message: types.Message, state: FSMContext):
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
+    # ===== ПЭЙВОЛ =====
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         db.schedule_retention_notifications(user_id)
         await message.answer(
             "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
             "остальные составы и выявить скрытые угрозы, необходимо оформить полный доступ. "
-            "Важно: после оплаты я буду жестко откалиброван под ваши ответы в анкете. "
-            "Не используйте меня для проверки косметики подруг — анализ чужих средств собьет "
-            "настройки вашего профиля.",
+            "Важно: после оплаты я буду жестко откалиброван под ваши ответы в анкете.",
             reply_markup=get_subscription_keyboard()
         )
         return
@@ -879,8 +842,14 @@ async def process_composition(message: types.Message, state: FSMContext):
         verdict = result["verdict"]
         status = result["status"]
 
+        # ===== НЕ РАСПОЗНАЛ → НЕ СПИСЫВАЕМ =====
         if status == "error":
-            await loading_msg.edit_text(verdict)
+            await loading_msg.edit_text(
+                "⚠️ В этом сообщении я не вижу состава (INCI).\n\n"
+                "Пришлите, пожалуйста, именно список ингредиентов с упаковки — "
+                "текстом или фото. Вопросы, жалобы и общие фразы я не анализирую.\n\n"
+                "Лимит не списан, попытка не засчитана."
+            )
             return
 
         db.save_analysis(user_id, composition, verdict, status)
@@ -908,7 +877,6 @@ async def process_composition(message: types.Message, state: FSMContext):
         else:
             await loading_msg.edit_text(verdict)
 
-        # ===== СБРОС КАТЕГОРИИ + inline-выбор для следующего средства =====
         await state.update_data(category=None)
         await message.answer(
             "Проверим следующее средство? Уточните, оно смываемое или нет:",
@@ -917,15 +885,16 @@ async def process_composition(message: types.Message, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка анализа: {e}")
-        await loading_msg.edit_text("❌ Ошибка при анализе. Попробуйте позже.")
+        await loading_msg.edit_text(
+            "❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан."
+        )
 
 
-# ================== ОПЛАТА (ЗАГЛУШКИ) ==================
+# ================== ОПЛАТА ==================
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
     await callback.message.answer(
-        "🔧 Тариф «Аудит» (30 дней, 1000 ₽) — оплата будет подключена на следующем этапе "
-        "(Продамус / ЮKassa)."
+        "🔧 Тариф «Аудит» (30 дней, 1000 ₽) — оплата будет подключена на следующем этапе."
     )
     await callback.answer()
 
@@ -933,8 +902,7 @@ async def pay_audit_30(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "pay_restore_90")
 async def pay_restore_90(callback: types.CallbackQuery):
     await callback.message.answer(
-        "🔧 Тариф «Восстановление» (90 дней, 2500 ₽) — оплата будет подключена на следующем "
-        "этапе (Продамус / ЮKassa)."
+        "🔧 Тариф «Восстановление» (90 дней, 2500 ₽) — оплата будет подключена на следующем этапе."
     )
     await callback.answer()
 
@@ -946,8 +914,7 @@ async def my_subscription(message: types.Message):
 
     if user_id in UNLIMITED_IDS:
         await message.answer(
-            "👑 *Режим безлимита активен.*\n\n"
-            "У вас неограниченный доступ к анализу составов.",
+            "👑 *Режим безлимита активен.*",
             parse_mode="Markdown"
         )
         return
@@ -956,8 +923,7 @@ async def my_subscription(message: types.Message):
 
     if not sub or sub["expires_at"] <= datetime.now():
         await message.answer(
-            "❌ У вас нет активной подписки.\n\n"
-            "Оформите доступ:",
+            "❌ У вас нет активной подписки.\n\nОформите доступ:",
             reply_markup=get_subscription_keyboard()
         )
     else:
@@ -967,7 +933,6 @@ async def my_subscription(message: types.Message):
         )
 
 
-# ================== ПОМОЩЬ ==================
 @dp.message(F.text == "/help")
 async def help_text(message: types.Message):
     await message.answer(
