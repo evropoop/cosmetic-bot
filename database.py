@@ -13,7 +13,6 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Таблица пользователей
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
@@ -28,14 +27,13 @@ def init_db():
     )
     """)
 
-    # ===== МИГРАЦИЯ: добавляем колонку user_name, если её нет =====
+    # Миграция: user_name
     cursor.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in cursor.fetchall()]
     if "user_name" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN user_name TEXT")
-        print("🔄 Миграция: добавлена колонка user_name в таблицу users")
+        print("🔄 Миграция: добавлена колонка user_name")
 
-    # Таблица подписок
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS subscriptions (
         user_id INTEGER PRIMARY KEY,
@@ -45,7 +43,6 @@ def init_db():
     )
     """)
 
-    # Таблица истории разборов
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS analyses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +54,6 @@ def init_db():
     )
     """)
 
-    # Таблица платежей
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +66,6 @@ def init_db():
     )
     """)
 
-    # Таблица заявок для Марии
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS leads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,8 +87,6 @@ def init_db():
 def get_or_create_user(user_id: int, username: str = None):
     conn = get_connection()
     cursor = conn.cursor()
-
-    # Явные колонки — не зависим от порядка и будущих миграций
     cursor.execute("""
         SELECT user_id, username, tags, free_checks, bad_bottles_in_a_row,
                survey_done, survey_completed_at, user_name
@@ -134,7 +127,6 @@ def get_or_create_user(user_id: int, username: str = None):
 
 
 def update_user_name(user_id: int, name: str):
-    """Сохраняет имя из анкеты в БД."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -146,7 +138,6 @@ def update_user_name(user_id: int, name: str):
 
 
 def get_user_name(user_id: int) -> str:
-    """Возвращает сохранённое имя из БД (или пустую строку)."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT user_name FROM users WHERE user_id = ?", (user_id,))
@@ -169,7 +160,6 @@ def update_user_tags(user_id: int, tags: list):
 
 
 def mark_survey_completed(user_id: int):
-    """Фиксирует дату завершения анкеты (для карантина 30 дней)."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -319,7 +309,7 @@ def save_lead(user_id: int, username: str, tags: list, photos: list):
     conn.close()
 
 
-# ================== ОТЛОЖЕННЫЕ УВЕДОМЛЕНИЯ (RETENTION) ==================
+# ================== RETENTION-УВЕДОМЛЕНИЯ ==================
 def _ensure_notifications_table():
     conn = get_connection()
     cursor = conn.cursor()
@@ -338,17 +328,16 @@ def _ensure_notifications_table():
 
 
 def schedule_retention_notifications(user_id: int):
-    """Планирует 5 уведомлений после пэйвола."""
+    """Планирует 6 уведомлений после пэйвола: 1м / 2ч / 24ч / 48ч / 7д / 30д."""
     _ensure_notifications_table()
 
-    # Сначала чистим старые неотправленные для этого юзера
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM scheduled_notifications WHERE user_id = ? AND sent = 0", (user_id,))
 
     now = datetime.now()
-    # (тип, через сколько)
     schedule = [
+        ("1m",  now + timedelta(minutes=1)),
         ("2h",  now + timedelta(hours=2)),
         ("24h", now + timedelta(hours=24)),
         ("48h", now + timedelta(hours=48)),
@@ -365,7 +354,6 @@ def schedule_retention_notifications(user_id: int):
 
 
 def cancel_retention_notifications(user_id: int):
-    """Отменяет все неотправленные уведомления (например, после оплаты)."""
     _ensure_notifications_table()
     conn = get_connection()
     cursor = conn.cursor()
@@ -375,7 +363,6 @@ def cancel_retention_notifications(user_id: int):
 
 
 def get_due_notifications():
-    """Возвращает список уведомлений, время которых пришло."""
     _ensure_notifications_table()
     conn = get_connection()
     cursor = conn.cursor()
