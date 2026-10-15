@@ -57,11 +57,20 @@ class Form(StatesGroup):
 
 # ================== КЛАВИАТУРЫ ==================
 def get_mode_keyboard():
+    """Нижняя Reply-клавиатура (альтернативный способ выбрать режим)."""
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🧼 Очищение")],
         [KeyboardButton(text="🧴 Несмываемый уход")],
         [KeyboardButton(text="👑 Готовый уход от Марии")]
     ], resize_keyboard=True)
+
+
+def get_next_category_keyboard():
+    """Inline-выбор категории для следующего средства (после вердикта)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧼 Смываемое", callback_data="next_wash")],
+        [InlineKeyboardButton(text="🧴 Несмываемое", callback_data="next_care")],
+    ])
 
 
 def get_start_keyboard():
@@ -177,7 +186,6 @@ async def _resolve_user_name(message: types.Message, state: FSMContext, user: di
     name = data.get("user_name")
 
     if not name:
-        # Пробуем из БД
         try:
             name = db.get_user_name(message.from_user.id)
         except Exception:
@@ -186,7 +194,6 @@ async def _resolve_user_name(message: types.Message, state: FSMContext, user: di
     if not name:
         name = message.from_user.first_name or "Клиент"
 
-    # Заодно кладём обратно в FSM, чтобы в следующий раз не искать
     if data.get("user_name") != name:
         await state.update_data(user_name=name)
 
@@ -255,14 +262,12 @@ async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
 async def process_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
 
-    # Сохраняем в FSM
     await state.update_data(user_name=name)
 
-    # Сохраняем в БД (с защитой — если функции ещё нет, не падаем)
     try:
         db.update_user_name(message.from_user.id, name)
     except Exception as e:
-        logger.warning(f"Не удалось сохранить имя в БД (нет функции update_user_name?): {e}")
+        logger.warning(f"Не удалось сохранить имя в БД: {e}")
 
     await state.set_state(Form.survey)
     await state.update_data(survey_step=0, tags=[])
@@ -431,7 +436,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
 
-    # ===== Имя: FSM → БД → Telegram-профиль =====
     user_name = data.get("user_name")
     if not user_name:
         try:
@@ -441,7 +445,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
     if not user_name:
         user_name = message.from_user.first_name or "Клиент"
 
-    # Кладём обратно в FSM, чтобы дальше не искать
     await state.update_data(user_name=user_name)
 
     user_id = message.chat.id
@@ -475,26 +478,20 @@ async def finish_survey(message: types.Message, state: FSMContext):
         reply_markup=get_path_keyboard()
     )
 
-    # ===== КРИТИЧНО: НЕ вызываем state.clear() — там user_name и tags! =====
-    # Просто переключаем состояние, данные остаются в FSM.
+    # НЕ вызываем state.clear() — там user_name и tags!
     await state.set_state(Form.waiting_for_composition)
 
 
-# ================== ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ ==================
+# ================== ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ (Reply-клавиатура) ==================
 @dp.message(F.text == "🧼 Очищение")
 async def set_mode_wash(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(message.from_user.id)
-
-    # Подстраховка: если FSM потерял имя — восстанавливаем
     await _resolve_user_name(message, state, user)
 
-    # Обновляем только категорию, НЕ трогая user_name и tags
     await state.update_data(category="wash")
-
     await message.answer(
         "🧼 Режим: *Очищение / Демакияж*.\n\n"
-        "Пришлите состав средства (пенка, гель, гидрофильное масло). "
-        "Я оценю его с учётом этой категории.",
+        "Пришлите состав средства (пенка, гель, гидрофильное масло).",
         parse_mode="Markdown",
         reply_markup=get_mode_keyboard()
     )
@@ -503,20 +500,46 @@ async def set_mode_wash(message: types.Message, state: FSMContext):
 @dp.message(F.text == "🧴 Несмываемый уход")
 async def set_mode_care(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(message.from_user.id)
-
-    # Подстраховка: если FSM потерял имя — восстанавливаем
     await _resolve_user_name(message, state, user)
 
-    # Обновляем только категорию, НЕ трогая user_name и tags
     await state.update_data(category="care")
-
     await message.answer(
         "🧴 Режим: *Несмываемый уход*.\n\n"
-        "Пришлите состав средства (крем, сыворотка, тоник). "
-        "Я оценю его с учётом этой категории.",
+        "Пришлите состав средства (крем, сыворотка, тоник).",
         parse_mode="Markdown",
         reply_markup=get_mode_keyboard()
     )
+
+
+# ================== INLINE-ВЫБОР КАТЕГОРИИ ДЛЯ СЛЕДУЮЩЕГО СРЕДСТВА ==================
+@dp.callback_query(F.data == "next_wash")
+async def next_category_wash(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await state.update_data(category="wash")
+    await callback.message.answer(
+        "🧼 Режим: *Смываемое средство*.\n\n"
+        "Пришлите состав (пенка, гель, гидрофильное масло).",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "next_care")
+async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await state.update_data(category="care")
+    await callback.message.answer(
+        "🧴 Режим: *Несмываемое средство*.\n\n"
+        "Пришлите состав (крем, сыворотка, тоник).",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
 
 # ================== ТРИГГЕР ПРОДАЖ: «👑 Готовый уход от Марии» ==================
@@ -543,7 +566,6 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
         reply_markup=get_offer_mariya_keyboard()
     )
 
-    # Подстраховка по имени
     user = db.get_or_create_user(message.from_user.id)
     await _resolve_user_name(message, state, user)
 
@@ -644,7 +666,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
 
-    # Имя: FSM → БД → Telegram-профиль
     user_name = await _resolve_user_name(message, state, user)
 
     data = await state.get_data()
@@ -652,9 +673,8 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 
     if not category_fsm:
         await message.answer(
-            "⚠️ Сначала выберите режим внизу экрана:\n"
-            "🧼 Очищение или 🧴 Несмываемый уход",
-            reply_markup=get_mode_keyboard()
+            "⚠️ Сначала выберите тип средства: смываемое оно или нет.",
+            reply_markup=get_next_category_keyboard()
         )
         return
 
@@ -710,9 +730,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         if is_unlimited:
             await loading_msg.edit_text(verdict)
             await message.answer("👑 Режим безлимита: проверок не ограничено.")
-            return
-
-        if not db.has_active_subscription(user_id):
+        elif not db.has_active_subscription(user_id):
             db.decrement_free_checks(user_id)
             remaining = db.get_free_checks(user_id)
             await loading_msg.edit_text(verdict)
@@ -726,6 +744,13 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         else:
             await loading_msg.edit_text(verdict)
 
+        # ===== СБРОС КАТЕГОРИИ + inline-выбор для следующего средства =====
+        await state.update_data(category=None)
+        await message.answer(
+            "Проверим следующее средство? Уточните, оно смываемое или нет:",
+            reply_markup=get_next_category_keyboard()
+        )
+
     except Exception as e:
         logger.error(f"Ошибка анализа фото: {e}")
         await loading_msg.edit_text("❌ Ошибка при анализе фото. Попробуйте позже.")
@@ -737,7 +762,6 @@ async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
 
-    # Имя: FSM → БД → Telegram-профиль
     user_name = await _resolve_user_name(message, state, user)
 
     data = await state.get_data()
@@ -745,9 +769,8 @@ async def process_composition(message: types.Message, state: FSMContext):
 
     if not category_fsm:
         await message.answer(
-            "⚠️ Сначала выберите режим внизу экрана:\n"
-            "🧼 Очищение или 🧴 Несмываемый уход",
-            reply_markup=get_mode_keyboard()
+            "⚠️ Сначала выберите тип средства: смываемое оно или нет.",
+            reply_markup=get_next_category_keyboard()
         )
         return
 
@@ -793,9 +816,7 @@ async def process_composition(message: types.Message, state: FSMContext):
         if is_unlimited:
             await loading_msg.edit_text(verdict)
             await message.answer("👑 Режим безлимита: проверок не ограничено.")
-            return
-
-        if not db.has_active_subscription(user_id):
+        elif not db.has_active_subscription(user_id):
             db.decrement_free_checks(user_id)
             remaining = db.get_free_checks(user_id)
             await loading_msg.edit_text(verdict)
@@ -808,6 +829,13 @@ async def process_composition(message: types.Message, state: FSMContext):
                 )
         else:
             await loading_msg.edit_text(verdict)
+
+        # ===== СБРОС КАТЕГОРИИ + inline-выбор для следующего средства =====
+        await state.update_data(category=None)
+        await message.answer(
+            "Проверим следующее средство? Уточните, оно смываемое или нет:",
+            reply_markup=get_next_category_keyboard()
+        )
 
     except Exception as e:
         logger.error(f"Ошибка анализа: {e}")
@@ -867,9 +895,9 @@ async def help_text(message: types.Message):
     await message.answer(
         "🤖 Я — Роман Андреевич, ИИ-аналитик косметических составов.\n\n"
         "1. Пройдите диагностику\n"
-        "2. Выберите режим внизу экрана:\n"
-        "   🧼 Очищение — для пенок, гелей, гидрофильных масел\n"
-        "   🧴 Несмываемый уход — для кремов, сывороток, тоников\n"
+        "2. Выберите тип средства:\n"
+        "   🧼 Смываемое — пенки, гели, гидрофильные масла\n"
+        "   🧴 Несмываемое — кремы, сыворотки, тоники\n"
         "   👑 Готовый уход от Марии — премиальный сервис подбора\n"
         "3. Пришлите фото состава или текст (INCI)\n"
         "4. Получите разбор\n\n"
