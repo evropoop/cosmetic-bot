@@ -317,3 +317,83 @@ def save_lead(user_id: int, username: str, tags: list, photos: list):
     )
     conn.commit()
     conn.close()
+
+
+# ================== ОТЛОЖЕННЫЕ УВЕДОМЛЕНИЯ (RETENTION) ==================
+def _ensure_notifications_table():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS scheduled_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        notification_type TEXT NOT NULL,
+        scheduled_at TEXT NOT NULL,
+        sent INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def schedule_retention_notifications(user_id: int):
+    """Планирует 5 уведомлений после пэйвола."""
+    _ensure_notifications_table()
+
+    # Сначала чистим старые неотправленные для этого юзера
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM scheduled_notifications WHERE user_id = ? AND sent = 0", (user_id,))
+
+    now = datetime.now()
+    # (тип, через сколько)
+    schedule = [
+        ("2h",  now + timedelta(hours=2)),
+        ("24h", now + timedelta(hours=24)),
+        ("48h", now + timedelta(hours=48)),
+        ("7d",  now + timedelta(days=7)),
+        ("30d", now + timedelta(days=30)),
+    ]
+    for ntype, when in schedule:
+        cursor.execute(
+            "INSERT INTO scheduled_notifications (user_id, notification_type, scheduled_at, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, ntype, when.isoformat(), now.isoformat())
+        )
+    conn.commit()
+    conn.close()
+
+
+def cancel_retention_notifications(user_id: int):
+    """Отменяет все неотправленные уведомления (например, после оплаты)."""
+    _ensure_notifications_table()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM scheduled_notifications WHERE user_id = ? AND sent = 0", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_due_notifications():
+    """Возвращает список уведомлений, время которых пришло."""
+    _ensure_notifications_table()
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    cursor.execute("""
+        SELECT id, user_id, notification_type
+        FROM scheduled_notifications
+        WHERE sent = 0 AND scheduled_at <= ?
+        ORDER BY scheduled_at ASC
+    """, (now,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"id": r[0], "user_id": r[1], "type": r[2]} for r in rows]
+
+
+def mark_notification_sent(notif_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE scheduled_notifications SET sent = 1 WHERE id = ?", (notif_id,))
+    conn.commit()
+    conn.close()
