@@ -57,7 +57,7 @@ class Form(StatesGroup):
 
 # ================== КЛАВИАТУРЫ ==================
 def get_mode_keyboard():
-    """Нижняя Reply-клавиатура (альтернативный способ выбрать режим)."""
+    """Нижняя Reply-клавиатура."""
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🧼 Очищение")],
         [KeyboardButton(text="🧴 Несмываемый уход")],
@@ -179,6 +179,71 @@ SURVEY_QUESTIONS = [
 ]
 
 
+# ================== RETENTION-УВЕДОМЛЕНИЯ ==================
+RETENTION_TEXTS = {
+    "2h": (
+        "Вы остановились на этапе активации доступа. Ваша анкета сохранена. "
+        "Чтобы я мог проанализировать вашу косметичку и выстроить протокол "
+        "восстановления барьера, завершите оформление. Я готов приступить к работе."
+    ),
+    "24h": (
+        "Прошли сутки с момента нашей паузы. Напоминаю, что каждый день "
+        "использования неподходящей косметики усугубляет состояние гидролипидной "
+        "мантии. Давайте остановим этот процесс и проведем аудит прямо сейчас. "
+        "Открываем доступ?"
+    ),
+    "48h": (
+        "Я закрываю ваш незаконченный сеанс в системе. Если вы решите навести "
+        "порядок в домашнем уходе и перестать тратить деньги на агрессивные "
+        "средства, возвращайтесь. Бот будет готов к работе, когда вы примете решение."
+    ),
+    "7d": (
+        "Прошла неделя с момента вашего визита. За это время вы нанесли свой "
+        "привычный уход минимум 14 раз. Если в вашей косметичке есть скрытые "
+        "аллергены или разрушающие барьер активы, за эту неделю вы усугубили "
+        "дефицит липидов. Готовы провести химический аудит?"
+    ),
+    "30d": (
+        "Прошел ровно месяц. В дерматологии 28–35 дней — это полный цикл "
+        "обновления эпидермиса. Если вы не меняли стратегию ухода, состояние кожи "
+        "осталось прежним или ухудшилось. Если вы устали тестировать косметику "
+        "вслепую, доступ к системе открыт."
+    ),
+}
+
+
+async def _send_retention_notification(user_id: int, notif_type: str):
+    """Отправляет одно retention-уведомление."""
+    text = RETENTION_TEXTS.get(notif_type)
+    if not text:
+        return
+
+    try:
+        await bot.send_message(
+            user_id,
+            f"🤖 Роман Андреевич: {text}",
+            reply_markup=get_subscription_keyboard()
+        )
+        logger.info(f"📨 Retention '{notif_type}' отправлено user_id={user_id}")
+    except Exception as e:
+        logger.warning(f"Не удалось отправить retention {notif_type} юзеру {user_id}: {e}")
+
+
+async def retention_worker():
+    """Фоновый воркер: раз в 5 минут проверяет БД и шлёт готовые уведомления."""
+    logger.info("⏰ Retention-воркер запущен")
+    while True:
+        try:
+            due = db.get_due_notifications()
+            for n in due:
+                await _send_retention_notification(n["user_id"], n["type"])
+                db.mark_notification_sent(n["id"])
+        except Exception as e:
+            logger.error(f"Ошибка в retention-воркере: {e}")
+
+        await asyncio.sleep(300)   # 5 минут
+
+
 # ================== ВСПОМОГАТЕЛЬНАЯ: получение имени ==================
 async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
     """Достаёт имя: FSM → БД → Telegram-профиль. Никогда не возвращает пустую строку."""
@@ -232,10 +297,19 @@ async def cmd_start(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Не удалось отправить кружок: {e}")
 
-    await message.answer(
+    sent_msg = await message.answer(
         "Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇",
         reply_markup=get_start_keyboard()
     )
+
+    try:
+        await bot.pin_chat_message(
+            chat_id=message.chat.id,
+            message_id=sent_msg.message_id,
+            disable_notification=True
+        )
+    except Exception as e:
+        logger.error(f"Не удалось закрепить сообщение: {e}")
 
 
 @dp.message(F.text.lower() == "бокс")
@@ -482,7 +556,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
     await state.set_state(Form.waiting_for_composition)
 
 
-# ================== ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ (Reply-клавиатура) ==================
+# ================== ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ (Reply) ==================
 @dp.message(F.text == "🧼 Очищение")
 async def set_mode_wash(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(message.from_user.id)
@@ -686,6 +760,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     is_unlimited = (user_id in UNLIMITED_IDS)
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
+        db.schedule_retention_notifications(user_id)
         await message.answer(
             "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
             "остальные составы и выявить скрытые угрозы, необходимо оформить полный доступ. "
@@ -737,6 +812,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
             if remaining > 0:
                 await message.answer(f"Осталось бесплатных проверок: {remaining}")
             else:
+                db.schedule_retention_notifications(user_id)
                 await message.answer(
                     "Это была ваша последняя бесплатная проверка.",
                     reply_markup=get_subscription_keyboard()
@@ -782,6 +858,7 @@ async def process_composition(message: types.Message, state: FSMContext):
     is_unlimited = (user_id in UNLIMITED_IDS)
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
+        db.schedule_retention_notifications(user_id)
         await message.answer(
             "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
             "остальные составы и выявить скрытые угрозы, необходимо оформить полный доступ. "
@@ -823,6 +900,7 @@ async def process_composition(message: types.Message, state: FSMContext):
             if remaining > 0:
                 await message.answer(f"Осталось бесплатных проверок: {remaining}")
             else:
+                db.schedule_retention_notifications(user_id)
                 await message.answer(
                     "Это была ваша последняя бесплатная проверка.",
                     reply_markup=get_subscription_keyboard()
@@ -908,6 +986,7 @@ async def help_text(message: types.Message):
 # ================== ЗАПУСК ==================
 async def main():
     logger.info("🚀 Бот запущен!")
+    asyncio.create_task(retention_worker())
     await dp.start_polling(bot)
 
 
