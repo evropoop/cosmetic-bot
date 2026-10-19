@@ -32,6 +32,10 @@ UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 MARIYA_URL = "https://t.me/miroslavskayaboks"
 
+# Ссылки на документы
+OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
+CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
+
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
 
@@ -44,6 +48,9 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 db.init_db()
+
+# Статусы, при которых лимит СПИСЫВАЕТСЯ
+ANALYZABLE_STATUSES = {"bad", "hidden_threat", "conditional", "good", "neutral", "hydrophilic"}
 
 
 # ================== FSM ==================
@@ -66,8 +73,8 @@ def get_mode_keyboard():
 
 def get_next_category_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🧼 Смываемое", callback_data="next_wash")],
-        [InlineKeyboardButton(text="🧴 Несмываемое", callback_data="next_care")],
+        [InlineKeyboardButton(text="🫧 Смываемое (всё, что смывается водой)", callback_data="next_wash")],
+        [InlineKeyboardButton(text="🧴 Несмываемое (всё, что остается на коже)", callback_data="next_care")],
     ])
 
 
@@ -87,8 +94,8 @@ def get_path_keyboard():
 
 def get_subscription_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
-        [InlineKeyboardButton(text="Восстановление (90 дней) — 2500 ₽", callback_data="pay_restore_90")],
+        [InlineKeyboardButton(text="💳 Оплатить Аудит — 1000 ₽", callback_data="pay_audit_30")],
+        [InlineKeyboardButton(text="🔥 Оплатить Восстановление — 2500 ₽", callback_data="pay_restore_90")],
     ])
 
 
@@ -106,7 +113,7 @@ def get_offer_scratch_keyboard():
     ])
 
 
-# ================== АНКЕТА ==================
+# ================== АНКЕТА (6 ВОПРОСОВ) ==================
 SURVEY_QUESTIONS = [
     {
         "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
@@ -191,7 +198,7 @@ RETENTION_TEXTS = {
     "24h": (
         "Прошли сутки с момента нашей паузы. Напоминаю, что каждый день "
         "использования неподходящей косметики усугубляет состояние гидролипидной "
-        "мантни. Давайте остановим этот процесс и проведем аудит прямо сейчас. "
+        "мантии. Давайте остановим этот процесс и проведем аудит прямо сейчас. "
         "Открываем доступ?"
     ),
     "48h": (
@@ -222,7 +229,8 @@ async def _send_retention_notification(user_id: int, notif_type: str):
         await bot.send_message(
             user_id,
             f"🤖 Роман Андреевич: {text}",
-            reply_markup=get_subscription_keyboard()
+            reply_markup=get_subscription_keyboard(),
+            parse_mode="HTML"
         )
         logger.info(f"📨 Retention '{notif_type}' → user_id={user_id}")
     except Exception as e:
@@ -230,7 +238,6 @@ async def _send_retention_notification(user_id: int, notif_type: str):
 
 
 async def retention_worker():
-    """Каждые 30 секунд проверяет БД и шлёт готовые уведомления."""
     logger.info("⏰ Retention-воркер запущен")
     while True:
         try:
@@ -296,9 +303,17 @@ async def cmd_start(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Не удалось отправить кружок: {e}")
 
+    start_text = (
+        "Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
+        f"Продолжая, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
+        f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>."
+    )
+
     sent_msg = await message.answer(
-        "Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇",
-        reply_markup=get_start_keyboard()
+        start_text,
+        reply_markup=get_start_keyboard(),
+        parse_mode="HTML",
+        disable_web_page_preview=True
     )
 
     try:
@@ -690,6 +705,24 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# ================== ТЕКСТ ПЭЙВОЛА ==================
+PAYWALL_TEXT = (
+    "Выберите формат работы с Романом Андреевичем:\n\n"
+    "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
+    "Полная ревизия вашей косметички.\n"
+    "• Безлимитный разбор составов на месяц.\n"
+    "• Поиск скрытых угроз и маркетинговых пустышек.\n"
+    "• Защита от покупок комедогенной косметики.\n\n"
+    "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
+    "Сопровождение на полный цикл обновления кожи.\n"
+    "• 3 месяца безлимитного разбора составов.\n"
+    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.\n\n"
+    f"Нажимая кнопку оплаты, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
+    f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.\n\n"
+    "👇 Оформите подписку, выбрав тариф ниже:"
+)
+
+
 # ================== ФОТО СОСТАВА ==================
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
@@ -719,10 +752,10 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         db.schedule_retention_notifications(user_id)
         await message.answer(
-            "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
-            "остальные составы и выявить скрытые угрозы, необходимо оформить полный доступ. "
-            "Важно: после оплаты я буду жестко откалиброван под ваши ответы в анкете.",
-            reply_markup=get_subscription_keyboard()
+            PAYWALL_TEXT,
+            reply_markup=get_subscription_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
         return
 
@@ -749,12 +782,12 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         status = result["status"]
 
         # ===== НЕ РАСПОЗНАЛ → НЕ СПИСЫВАЕМ =====
-        if status == "error":
+        if status not in ANALYZABLE_STATUSES:
             await loading_msg.edit_text(
-                "⚠️ Не удалось распознать состав на этом фото.\n\n"
-                "Попробуйте прислать более чёткое фото (при хорошем свете, крупным планом) "
-                "или отправьте состав текстом.\n\n"
-                "Лимит не списан, попытка не засчитана."
+                "⚠️ Фото не читается полностью.\n\n"
+                "Пожалуйста, сделайте более чёткое фото этикетки (при хорошем свете, "
+                "крупным планом, чтобы был виден весь список) или пришлите состав текстом.\n\n"
+                "Лимит не списан, попробуйте ещё раз."
             )
             return
 
@@ -825,10 +858,10 @@ async def process_composition(message: types.Message, state: FSMContext):
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         db.schedule_retention_notifications(user_id)
         await message.answer(
-            "Мой лимит на бесплатную базовую диагностику исчерпан. Если вы хотите проверить "
-            "остальные составы и выявить скрытые угрозы, необходимо оформить полный доступ. "
-            "Важно: после оплаты я буду жестко откалиброван под ваши ответы в анкете.",
-            reply_markup=get_subscription_keyboard()
+            PAYWALL_TEXT,
+            reply_markup=get_subscription_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
         return
 
@@ -843,12 +876,12 @@ async def process_composition(message: types.Message, state: FSMContext):
         status = result["status"]
 
         # ===== НЕ РАСПОЗНАЛ → НЕ СПИСЫВАЕМ =====
-        if status == "error":
+        if status not in ANALYZABLE_STATUSES:
             await loading_msg.edit_text(
                 "⚠️ В этом сообщении я не вижу состава (INCI).\n\n"
                 "Пришлите, пожалуйста, именно список ингредиентов с упаковки — "
                 "текстом или фото. Вопросы, жалобы и общие фразы я не анализирую.\n\n"
-                "Лимит не списан, попытка не засчитана."
+                "Лимит не списан, попробуйте ещё раз."
             )
             return
 
@@ -894,7 +927,7 @@ async def process_composition(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
     await callback.message.answer(
-        "🔧 Тариф «Аудит» (30 дней, 1000 ₽) — оплата будет подключена на следующем этапе."
+        "🔧 Тариф «Аудит» (30 дней, 1000 ₽) — оплата будет подключена на следующем этапе (Продамус)."
     )
     await callback.answer()
 
@@ -902,7 +935,7 @@ async def pay_audit_30(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "pay_restore_90")
 async def pay_restore_90(callback: types.CallbackQuery):
     await callback.message.answer(
-        "🔧 Тариф «Восстановление» (90 дней, 2500 ₽) — оплата будет подключена на следующем этапе."
+        "🔧 Тариф «Восстановление» (90 дней, 2500 ₽) — оплата будет подключена на следующем этапе (Продамус)."
     )
     await callback.answer()
 
@@ -939,7 +972,7 @@ async def help_text(message: types.Message):
         "🤖 Я — Роман Андреевич, ИИ-аналитик косметических составов.\n\n"
         "1. Пройдите диагностику\n"
         "2. Выберите тип средства:\n"
-        "   🧼 Смываемое — пенки, гели, гидрофильные масла\n"
+        "   🫧 Смываемое — пенки, гели, гидрофильные масла\n"
         "   🧴 Несмываемое — кремы, сыворотки, тоники\n"
         "   👑 Готовый уход от Марии — премиальный сервис подбора\n"
         "3. Пришлите фото состава или текст (INCI)\n"
@@ -951,6 +984,29 @@ async def help_text(message: types.Message):
 # ================== ЗАПУСК ==================
 async def main():
     logger.info("🚀 Бот запущен!")
+
+    # ===== ОПИСАНИЕ БОТА (реквизиты ИП) =====
+    try:
+        await bot.set_my_description(
+            description=(
+                "Я — Роман Андреевич, ИИ-аналитик косметических составов проекта Skin Protokol. "
+                "Провожу диагностику кожи, разбираю состав средств (INCI) и защищаю вашу кожу "
+                "от агрессивной косметики.\n\n"
+                "2 бесплатные проверки для новых пользователей.\n\n"
+                "Исполнитель: Мирославская Мария Владимировна\n"
+                "ИНН: 420302908032"
+            )
+        )
+        await bot.set_my_short_description(
+            short_description=(
+                "AI-аудитор косметики. Разбор составов (INCI) под вашу кожу.\n"
+                "Исполнитель: ИП Мирославская М.В., ИНН 420302908032"
+            )
+        )
+        logger.info("✅ Описание бота обновлено (с реквизитами ИП)")
+    except Exception as e:
+        logger.error(f"Не удалось обновить описание бота: {e}")
+
     asyncio.create_task(retention_worker())
     await dp.start_polling(bot)
 
