@@ -78,9 +78,23 @@ def get_next_category_keyboard():
     ])
 
 
+def get_accept_offer_keyboard(target: str):
+    """target = 'start' или 'pay'"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Принять оферту", callback_data=f"accept_offer_{target}")]
+    ])
+
+
+def get_accept_consent_keyboard(target: str):
+    """target = 'start' или 'pay'"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Даю согласие", callback_data=f"accept_consent_{target}")]
+    ])
+
+
 def get_start_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Начать диагностику", callback_data="start_diagnosis")]
+        [InlineKeyboardButton(text="▶️ Начать диагностику", callback_data="start_diagnosis")]
     ])
 
 
@@ -303,32 +317,116 @@ async def cmd_start(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Не удалось отправить кружок: {e}")
 
-    start_text = (
-        "Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
-        f"Продолжая, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
-        f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>."
-    )
-
-    sent_msg = await message.answer(
-        start_text,
-        reply_markup=get_start_keyboard(),
+    # ШАГ 1: Публичная оферта
+    await message.answer(
+        f"Для продолжения работы, пожалуйста, ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.\n\n"
+        "Нажмите кнопку ниже, чтобы принять условия.",
+        reply_markup=get_accept_offer_keyboard("start"),
         parse_mode="HTML",
         disable_web_page_preview=True
     )
 
-    try:
-        await bot.pin_chat_message(
-            chat_id=message.chat.id,
-            message_id=sent_msg.message_id,
-            disable_notification=True
+
+@dp.callback_query(F.data == "accept_offer_start")
+async def handle_offer_start(callback: types.CallbackQuery):
+    # ШАГ 2: Согласие на обработку
+    await callback.message.edit_text(
+        f"Теперь, пожалуйста, ознакомьтесь с <a href='{CONSENT_URL}'>Согласием на обработку персональных данных</a>.\n\n"
+        "Нажмите кнопку ниже, чтобы дать согласие.",
+        reply_markup=get_accept_consent_keyboard("start"),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "accept_consent_start")
+async def handle_consent_start(callback: types.CallbackQuery):
+    # ШАГ 3: Финальное сообщение с кнопкой старта
+    await callback.message.edit_text(
+        "Спасибо! Условия приняты.\n\n"
+        "Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇",
+        reply_markup=get_start_keyboard()
+    )
+    await callback.answer()
+
+
+# ================== ПЭЙВОЛ (СРАЗУ ТАРИФЫ) ==================
+PAYWALL_TEXT = (
+    "Выберите формат работы с Романом Андреевичем:\n\n"
+    "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
+    "Полная ревизия вашей косметички.\n"
+    "• Безлимитный разбор составов на месяц.\n"
+    "• Поиск скрытых угроз и маркетинговых пустышек.\n"
+    "• Защита от покупок комедогенной косметики.\n\n"
+    "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
+    "Сопровождение на полный цикл обновления кожи.\n"
+    "• 3 месяца безлимитного разбора составов.\n"
+    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.\n\n"
+    "👇 Оформите подписку, выбрав тариф ниже:"
+)
+
+
+# ================== СОГЛАСИЯ ПЕРЕД ОПЛАТОЙ ==================
+# Срабатывает при нажатии на кнопку тарифа (pay_audit_30 / pay_restore_90)
+@dp.callback_query(F.data == "pay_audit_30")
+async def pay_audit_30(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(pending_tariff="audit")
+    await callback.message.answer(
+        f"Для оформления тарифа «Аудит» необходимо принять условия.\n\n"
+        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
+        reply_markup=get_accept_offer_keyboard("pay"),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "pay_restore_90")
+async def pay_restore_90(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(pending_tariff="restore")
+    await callback.message.answer(
+        f"Для оформления тарифа «Восстановление» необходимо принять условия.\n\n"
+        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
+        reply_markup=get_accept_offer_keyboard("pay"),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "accept_offer_pay")
+async def handle_offer_pay(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        f"Теперь, пожалуйста, ознакомьтесь с <a href='{CONSENT_URL}'>Согласием на обработку персональных данных</a>.",
+        reply_markup=get_accept_consent_keyboard("pay"),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "accept_consent_pay")
+async def handle_consent_pay(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tariff = data.get("pending_tariff", "audit")
+
+    if tariff == "restore":
+        text = (
+            "✅ Спасибо! Согласия получены.\n\n"
+            "Перенаправляю на оплату тарифа «Восстановление (90 дней) — 2500 ₽».\n\n"
+            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
         )
-    except Exception as e:
-        logger.error(f"Не удалось закрепить сообщение: {e}")
+    else:
+        text = (
+            "✅ Спасибо! Согласия получены.\n\n"
+            "Перенаправляю на оплату тарифа «Аудит (30 дней) — 1000 ₽».\n\n"
+            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
+        )
 
-
-@dp.message(F.text.lower() == "бокс")
-async def code_box(message: types.Message, state: FSMContext):
-    await cmd_start(message, state)
+    await callback.message.edit_text(text)
+    await state.update_data(pending_tariff=None)
+    await callback.answer()
 
 
 # ================== СТАРТ ДИАГНОСТИКИ ==================
@@ -705,24 +803,6 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ТЕКСТ ПЭЙВОЛА ==================
-PAYWALL_TEXT = (
-    "Выберите формат работы с Романом Андреевичем:\n\n"
-    "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
-    "Полная ревизия вашей косметички.\n"
-    "• Безлимитный разбор составов на месяц.\n"
-    "• Поиск скрытых угроз и маркетинговых пустышек.\n"
-    "• Защита от покупок комедогенной косметики.\n\n"
-    "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
-    "Сопровождение на полный цикл обновления кожи.\n"
-    "• 3 месяца безлимитного разбора составов.\n"
-    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.\n\n"
-    f"Нажимая кнопку оплаты, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
-    f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.\n\n"
-    "👇 Оформите подписку, выбрав тариф ниже:"
-)
-
-
 # ================== ФОТО СОСТАВА ==================
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
@@ -923,23 +1003,6 @@ async def process_composition(message: types.Message, state: FSMContext):
         )
 
 
-# ================== ОПЛАТА ==================
-@dp.callback_query(F.data == "pay_audit_30")
-async def pay_audit_30(callback: types.CallbackQuery):
-    await callback.message.answer(
-        "🔧 Тариф «Аудит» (30 дней, 1000 ₽) — оплата будет подключена на следующем этапе (Продамус)."
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "pay_restore_90")
-async def pay_restore_90(callback: types.CallbackQuery):
-    await callback.message.answer(
-        "🔧 Тариф «Восстановление» (90 дней, 2500 ₽) — оплата будет подключена на следующем этапе (Продамус)."
-    )
-    await callback.answer()
-
-
 # ================== ПОДПИСКА ==================
 @dp.message(F.text == "/sub")
 async def my_subscription(message: types.Message):
@@ -985,7 +1048,6 @@ async def help_text(message: types.Message):
 async def main():
     logger.info("🚀 Бот запущен!")
 
-    # ===== ОПИСАНИЕ БОТА (реквизиты ИП) =====
     try:
         await bot.set_my_description(
             description=(
