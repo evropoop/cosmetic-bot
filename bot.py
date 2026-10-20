@@ -79,14 +79,14 @@ def get_next_category_keyboard():
 
 
 def get_accept_offer_keyboard(target: str):
-    """target = 'start' или 'pay'"""
+    """target = 'pay'"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Принять оферту", callback_data=f"accept_offer_{target}")]
     ])
 
 
 def get_accept_consent_keyboard(target: str):
-    """target = 'start' или 'pay'"""
+    """target = 'pay'"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Даю согласие", callback_data=f"accept_consent_{target}")]
     ])
@@ -317,116 +317,20 @@ async def cmd_start(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Не удалось отправить кружок: {e}")
 
-    # ШАГ 1: Публичная оферта
+    # Одно сообщение с ссылками и кнопкой старта
     await message.answer(
-        f"Для продолжения работы, пожалуйста, ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.\n\n"
-        "Нажмите кнопку ниже, чтобы принять условия.",
-        reply_markup=get_accept_offer_keyboard("start"),
+        f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
+        f"Нажимая кнопку, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
+        f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.",
+        reply_markup=get_start_keyboard(),
         parse_mode="HTML",
         disable_web_page_preview=True
     )
 
 
-@dp.callback_query(F.data == "accept_offer_start")
-async def handle_offer_start(callback: types.CallbackQuery):
-    # ШАГ 2: Согласие на обработку
-    await callback.message.edit_text(
-        f"Теперь, пожалуйста, ознакомьтесь с <a href='{CONSENT_URL}'>Согласием на обработку персональных данных</a>.\n\n"
-        "Нажмите кнопку ниже, чтобы дать согласие.",
-        reply_markup=get_accept_consent_keyboard("start"),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "accept_consent_start")
-async def handle_consent_start(callback: types.CallbackQuery):
-    # ШАГ 3: Финальное сообщение с кнопкой старта
-    await callback.message.edit_text(
-        "Спасибо! Условия приняты.\n\n"
-        "Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇",
-        reply_markup=get_start_keyboard()
-    )
-    await callback.answer()
-
-
-# ================== ПЭЙВОЛ (СРАЗУ ТАРИФЫ) ==================
-PAYWALL_TEXT = (
-    "Выберите формат работы с Романом Андреевичем:\n\n"
-    "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
-    "Полная ревизия вашей косметички.\n"
-    "• Безлимитный разбор составов на месяц.\n"
-    "• Поиск скрытых угроз и маркетинговых пустышек.\n"
-    "• Защита от покупок комедогенной косметики.\n\n"
-    "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
-    "Сопровождение на полный цикл обновления кожи.\n"
-    "• 3 месяца безлимитного разбора составов.\n"
-    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.\n\n"
-    "👇 Оформите подписку, выбрав тариф ниже:"
-)
-
-
-# ================== СОГЛАСИЯ ПЕРЕД ОПЛАТОЙ ==================
-# Срабатывает при нажатии на кнопку тарифа (pay_audit_30 / pay_restore_90)
-@dp.callback_query(F.data == "pay_audit_30")
-async def pay_audit_30(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(pending_tariff="audit")
-    await callback.message.answer(
-        f"Для оформления тарифа «Аудит» необходимо принять условия.\n\n"
-        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
-        reply_markup=get_accept_offer_keyboard("pay"),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "pay_restore_90")
-async def pay_restore_90(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(pending_tariff="restore")
-    await callback.message.answer(
-        f"Для оформления тарифа «Восстановление» необходимо принять условия.\n\n"
-        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
-        reply_markup=get_accept_offer_keyboard("pay"),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "accept_offer_pay")
-async def handle_offer_pay(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        f"Теперь, пожалуйста, ознакомьтесь с <a href='{CONSENT_URL}'>Согласием на обработку персональных данных</a>.",
-        reply_markup=get_accept_consent_keyboard("pay"),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "accept_consent_pay")
-async def handle_consent_pay(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    tariff = data.get("pending_tariff", "audit")
-
-    if tariff == "restore":
-        text = (
-            "✅ Спасибо! Согласия получены.\n\n"
-            "Перенаправляю на оплату тарифа «Восстановление (90 дней) — 2500 ₽».\n\n"
-            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
-        )
-    else:
-        text = (
-            "✅ Спасибо! Согласия получены.\n\n"
-            "Перенаправляю на оплату тарифа «Аудит (30 дней) — 1000 ₽».\n\n"
-            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
-        )
-
-    await callback.message.edit_text(text)
-    await state.update_data(pending_tariff=None)
-    await callback.answer()
+@dp.message(F.text.lower() == "бокс")
+async def code_box(message: types.Message, state: FSMContext):
+    await cmd_start(message, state)
 
 
 # ================== СТАРТ ДИАГНОСТИКИ ==================
@@ -456,15 +360,16 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.set_state(Form.survey)
     await state.update_data(survey_step=0, tags=[])
 
-    await message.answer(
+    # Отправляем сообщение и сохраняем его, чтобы потом отредактировать в первый вопрос
+    loading_msg = await message.answer(
         f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, "
         f"с чем мы работаем. 👇"
     )
-    await send_question(message, state)
+    await send_question(message, state, edit_msg=loading_msg)
 
 
 # ================== АНКЕТА ==================
-async def send_question(message: types.Message, state: FSMContext):
+async def send_question(message: types.Message, state: FSMContext, edit_msg: types.Message = None):
     data = await state.get_data()
     step = data.get("survey_step", 0)
 
@@ -483,10 +388,15 @@ async def send_question(message: types.Message, state: FSMContext):
     if step > 0:
         buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_{step}")])
 
-    await message.answer(
-        q["text"],
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-    )
+    markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    if edit_msg:
+        try:
+            await edit_msg.edit_text(q["text"], reply_markup=markup)
+        except Exception:
+            await message.answer(q["text"], reply_markup=markup)
+    else:
+        await message.answer(q["text"], reply_markup=markup)
 
 
 @dp.callback_query(F.data.regexp(r"^back_\d+$"))
@@ -800,6 +710,83 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
         reply_markup=get_mode_keyboard()
     )
     await state.set_state(Form.waiting_for_composition)
+    await callback.answer()
+
+
+# ================== ПЭЙВОЛ (СРАЗУ ТАРИФЫ) ==================
+PAYWALL_TEXT = (
+    "Выберите формат работы с Романом Андреевичем:\n\n"
+    "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
+    "Полная ревизия вашей косметички.\n"
+    "• Безлимитный разбор составов на месяц.\n"
+    "• Поиск скрытых угроз и маркетинговых пустышек.\n"
+    "• Защита от покупок комедогенной косметики.\n\n"
+    "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
+    "Сопровождение на полный цикл обновления кожи.\n"
+    "• 3 месяца безлимитного разбора составов.\n"
+    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.\n\n"
+    "👇 Оформите подписку, выбрав тариф ниже:"
+)
+
+
+# ================== СОГЛАСИЯ ПЕРЕД ОПЛАТОЙ ==================
+@dp.callback_query(F.data == "pay_audit_30")
+async def pay_audit_30(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(pending_tariff="audit")
+    await callback.message.answer(
+        f"Для оформления тарифа «Аудит» необходимо принять условия.\n\n"
+        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
+        reply_markup=get_accept_offer_keyboard("pay"),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "pay_restore_90")
+async def pay_restore_90(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(pending_tariff="restore")
+    await callback.message.answer(
+        f"Для оформления тарифа «Восстановление» необходимо принять условия.\n\n"
+        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
+        reply_markup=get_accept_offer_keyboard("pay"),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "accept_offer_pay")
+async def handle_offer_pay(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        f"Теперь, пожалуйста, ознакомьтесь с <a href='{CONSENT_URL}'>Согласием на обработку персональных данных</a>.",
+        reply_markup=get_accept_consent_keyboard("pay"),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "accept_consent_pay")
+async def handle_consent_pay(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tariff = data.get("pending_tariff", "audit")
+
+    if tariff == "restore":
+        text = (
+            "✅ Спасибо! Согласия получены.\n\n"
+            "Перенаправляю на оплату тарифа «Восстановление (90 дней) — 2500 ₽».\n\n"
+            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
+        )
+    else:
+        text = (
+            "✅ Спасибо! Согласия получены.\n\n"
+            "Перенаправляю на оплату тарифа «Аудит (30 дней) — 1000 ₽».\n\n"
+            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
+        )
+
+    await callback.message.edit_text(text)
+    await state.update_data(pending_tariff=None)
     await callback.answer()
 
 
