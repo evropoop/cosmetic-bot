@@ -12,14 +12,11 @@ client = AsyncOpenAI(
     base_url="https://polza.ai/api/v1"
 )
 
-# ================== НАСТРОЙКИ МОДЕЛИ ==================
 MODEL_NAME = "anthropic/claude-sonnet-4.5"
 TEMPERATURE_ANALYSIS = 0.3
 TEMPERATURE_DIAGNOSIS = 0.4
 MAX_TOKENS = 500
 
-
-# ================== ЧАСТЬ 1: БАЗОВЫЕ НАСТРОЙКИ ==================
 BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
 Ты — Роман Андреевич, строгий премиальный химик-технолог и косметический аудитор. Общайся на уважительное «Вы». Твой образ — это надежная стена и абсолютная безопасность для клиентки. Транслируй мужскую профессиональную опеку: ты забираешь у нее тревогу и принимаешь решения за нее («Вы можете быть спокойны», «Я беру этот вопрос на себя»). Будь строг к производителям косметики, но максимально бережен к самой женщине.
 ЗАПРЕЩЕНО: заискивание, приветствия («Добрый день», «Здравствуйте»), сюсюканье и любой сленг («баночка», «косметос», «супер»).
@@ -44,8 +41,6 @@ BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
 КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать любые вступительные фразы, оценивать потребности кожи или делать лирические отступления. Сразу переходи к статусу и разбору химии.
 """
 
-
-# ================== ЧАСТЬ 2: МАТРИЦА ОЧИЩЕНИЯ ==================
 MATRIX_WASH = """АБСОЛЮТНОЕ ВЕТО: Проверяется до оценки базы. При совпадении тегов [Беременность] с ретинолом, либо [Аллергия] с аллергеном, НЕМЕДЛЕННО выдавай 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
 
 ВЫБЕРИ СТРОГО ОДИН СТАТУС И ШАБЛОН ДЛЯ ОТВЕТА:
@@ -62,8 +57,6 @@ MATRIX_WASH = """АБСОЛЮТНОЕ ВЕТО: Проверяется до оц
 - Шаблон: «🟢 ОДОБРЯЮ.»
 """
 
-
-# ================== ЧАСТЬ 3: МАТРИЦА УХОДА ==================
 MATRIX_CARE = """АБСОЛЮТНОЕ ВЕТО: Проверяется до оценки базы. При совпадении тегов [Беременность] с ретинолом/BHA, либо [Аллергия] с аллергеном, НЕМЕДЛЕННО выдавай 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
 
 ВЫБЕРИ СТРОГО ОДИН СТАТУС (КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО ПРИСВАИВАТЬ ОДИН СТАТУС ЗА ПРИЧИНУ ОТ ДРУГОГО):
@@ -89,8 +82,6 @@ MATRIX_CARE = """АБСОЛЮТНОЕ ВЕТО: Проверяется до оц
 - Шаблон: «🟢 ОДОБРЯЮ.»
 """
 
-
-# ================== ЧАСТЬ 4: БЛОК ПРИМЕРОВ ==================
 EXAMPLES_BLOCK = """ПРИМЕР 1 (Вводные: Имя - Анна, Теги - [Беременность, Пигментация]):
 Анна, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе присутствует Retinol, который категорически противопоказан во время беременности. Пигментацию будем корректировать безопасными компонентами.
 
@@ -107,8 +98,6 @@ EXAMPLES_BLOCK = """ПРИМЕР 1 (Вводные: Имя - Анна, Теги 
 Светлана, 🔵 ИСКЛЮЧЕНИЕ. Гидрофильное масло. Обязательно тщательно смывайте его пенкой вторым этапом, чтобы не забить поры. Наличие ПЭГ-эмульгаторов здесь является технологической нормой для растворения макияжа.
 """
 
-
-# ================== МАППИНГ ТЕГОВ (ENG → RU) ==================
 TAG_MAP = {
     "problem": "Проблемная",
     "barrier_broken": "Сломан барьер",
@@ -123,9 +112,7 @@ TAG_MAP = {
     "normal": "Нормально",
 }
 
-
 def _translate_tags(tags: list) -> str:
-    """Переводит английские теги в русские для промпта."""
     if not tags:
         return "нет данных"
     result = []
@@ -140,7 +127,6 @@ def _translate_tags(tags: list) -> str:
     return ", ".join(result)
 
 
-# ================== СБОРКА SYSTEM PROMPT ==================
 def _get_matrix(category: str) -> str:
     if category == "cleansing":
         return MATRIX_WASH
@@ -148,7 +134,6 @@ def _get_matrix(category: str) -> str:
 
 
 def _build_system_prompt(category: str) -> str:
-    """Собирает полный системный промпт: БАЗА + МАТРИЦА + ПРИМЕРЫ."""
     return (
         "# СИСТЕМНЫЙ ПРОМПТ ДЛЯ LLM (РОМАН АНДРЕЕВИЧ)\n\n"
         "## ЧАСТЬ 1: БАЗОВЫЕ НАСТРОЙКИ\n"
@@ -160,7 +145,6 @@ def _build_system_prompt(category: str) -> str:
     )
 
 
-# ================== ОПРЕДЕЛЕНИЕ СТАТУСА ==================
 def _get_status(result: str) -> str:
     if "🔴" in result:
         return "bad"
@@ -180,7 +164,6 @@ def _get_status(result: str) -> str:
         return "unknown"
 
 
-# ================== ОБРЕЗКА + ЗАЩИТА ОТ ЭХА ==================
 def _safe_trim(text: str, limit: int = 450) -> str:
     echo_markers = [
         "РОЛЬ И ТОНАЛЬНОСТЬ", "ЧАСТЬ 1", "ЧАСТЬ 2", "ЧАСТЬ 3", "ЧАСТЬ 4",
@@ -216,7 +199,6 @@ def _safe_trim(text: str, limit: int = 450) -> str:
     return text[:limit]
 
 
-# ================== ЯДРО: ВЫЗОВ МОДЕЛИ ==================
 async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) -> str:
     try:
         response = await client.chat.completions.create(
@@ -230,29 +212,10 @@ async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) ->
         )
 
         if not response or not response.choices:
-            logger.error("Модель вернула пустой ответ")
             return ""
-
-        usage = response.usage
-        if usage:
-            cached_tokens = 0
-            try:
-                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
-                elif hasattr(usage, "cached_tokens"):
-                    cached_tokens = usage.cached_tokens or 0
-            except Exception:
-                cached_tokens = 0
-
-            logger.info(
-                f"📊 Токены: вход={usage.prompt_tokens}, "
-                f"из кэша={cached_tokens}, "
-                f"выход={usage.completion_tokens}"
-            )
 
         content = response.choices[0].message.content
         if not content:
-            logger.error("Модель вернула пустой текст")
             return ""
 
         return content
@@ -271,7 +234,6 @@ async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
         if status not in ["error", "unknown"]:
             return {"verdict": result_text, "status": status}
 
-    logger.warning("Ретрай запроса к LLM (temperature=0)")
     retry_text = await _call_llm(system_prompt, user_prompt, 0.0)
 
     if retry_text:
@@ -285,7 +247,6 @@ async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
     }
 
 
-# ================== АНАЛИЗ ТЕКСТОВОГО СОСТАВА ==================
 async def analyze_composition(composition: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
     tags_str = _translate_tags(tags)
 
@@ -307,14 +268,11 @@ async def analyze_composition(composition: str, tags: list, user_name: str = "",
     return await _call_llm_with_retry(system_prompt, user_prompt)
 
 
-# ================== АНАЛИЗ ФОТО СОСТАВА ==================
 async def analyze_composition_photo(photo_urls, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
-    # Обратная совместимость: если передана строка — оборачиваем в список
     if isinstance(photo_urls, str):
         photo_urls = [photo_urls]
 
     tags_str = _translate_tags(tags)
-
     system_prompt = _build_system_prompt(category)
 
     user_prompt = (
@@ -333,7 +291,6 @@ async def analyze_composition_photo(photo_urls, tags: list, user_name: str = "",
         f"⚠️ НЕДОСТАТОЧНО ДАННЫХ. Фото не читается полностью."
     )
 
-    # Формируем контент с несколькими фото
     content = [{"type": "text", "text": user_prompt}]
     for url in photo_urls:
         content.append({"type": "image_url", "image_url": {"url": url}})
@@ -350,30 +307,11 @@ async def analyze_composition_photo(photo_urls, tags: list, user_name: str = "",
         )
 
         if not response or not response.choices:
-            logger.error("Модель вернула пустой ответ (фото)")
             return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте ещё раз.", "status": "error"}
-
-        usage = response.usage
-        if usage:
-            cached_tokens = 0
-            try:
-                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
-                elif hasattr(usage, "cached_tokens"):
-                    cached_tokens = usage.cached_tokens or 0
-            except Exception:
-                cached_tokens = 0
-
-            logger.info(
-                f"📊 [ФОТО] Токены: вход={usage.prompt_tokens}, "
-                f"из кэша={cached_tokens}, "
-                f"выход={usage.completion_tokens}"
-            )
 
         result = response.choices[0].message.content
 
         if not result:
-            logger.error("Модель вернула пустой текст (фото)")
             return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте ещё раз.", "status": "error"}
 
         result = _safe_trim(result, 450)
@@ -384,7 +322,6 @@ async def analyze_composition_photo(photo_urls, tags: list, user_name: str = "",
         return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте позже.", "status": "error"}
 
 
-# ================== ГЕНЕРАЦИЯ ДИАГНОЗА ==================
 async def generate_diagnosis(name: str, tags: list) -> str:
     tags_str = _translate_tags(tags)
 
@@ -394,9 +331,9 @@ async def generate_diagnosis(name: str, tags: list) -> str:
     has_personal = has_allergy or has_medicine or has_pregnancy
 
     if has_personal:
-        personal_note = "\n⚠️ Есть персональные данные (аллергия/медицина/беременность). Упоминай их в шаге ПЕРСОНАЛИЗАЦИЯ прямо и кратко."
+        personal_note = "\n⚠️ Есть персональные данные. Упоминай их в шаге ПЕРСОНАЛИЗАЦИЯ."
     else:
-        personal_note = "\n⚠️ Персональных данных НЕТ. ПРОПУСТИ шаг ПЕРСОНАЛИЗАЦИЯ полностью."
+        personal_note = "\n⚠️ Персональных данных НЕТ. ПРОПУСТИ шаг ПЕРСОНАЛИЗАЦИЯ."
 
     system_prompt = BASE_PROMPT
 
@@ -405,22 +342,8 @@ async def generate_diagnosis(name: str, tags: list) -> str:
 
 ЗАДАЧА: Диагноз по формуле, СТРОГО до 400 символов.
 
-ШАГИ:
-1. ФАКТ — состояние кожи.
-2. МЕХАНИКА — причина (профессиональные термины).
-3. ПЕРСОНАЛИЗАЦИЯ — ТОЛЬКО если есть данные.
-4. СТРАТЕГИЯ — вектор работы.
-
-ЖЁСТКИЕ ПРАВИЛА:
-- Максимум 400 символов.
-- ЗАПРЕЩЕНЫ: приветствия, вводные слова, лирика.
-- ПЕРВОЕ СЛОВО — имя клиента.
-- ЗАПРЕЩЕНО использовать слово «тег» или «теги».
-- ПИШИ ПО-РУССКИ.
-- НИКОГДА не обрывай предложение.
-
-ЭТАЛОН:
-«Мария, фиксируем выраженную реактивность. Это прямое следствие нарушения целостности эпидермиса и дефицита структурных липидов. Зафиксированы ваша беременность, медицинский диагноз и аллергия на гиалуроновую кислоту. Наша стратегия — использовать физиологичный подход: компенсировать дефицит липидов, минимизировать трансэпидермальную потерю влаги и восстановить гидролипидную мантию».
+ШАГИ: ФАКТ, МЕХАНИКА, ПЕРСОНАЛИЗАЦИЯ (если есть), СТРАТЕГИЯ.
+ПРАВИЛА: Максимум 400 символов, первое слово — имя, без приветствий и тегов, не обрывать мысль.
 
 ФОРМАТ: один абзац, 3–4 предложения."""
 
@@ -439,9 +362,8 @@ async def generate_diagnosis(name: str, tags: list) -> str:
             return "Сухость и нарушение барьера. Требуется физиологичный подход: компенсировать дефицит липидов, восстановить целостность гидролипидной мантии."
 
         result = response.choices[0].message.content
-
         if not result:
-            return "Сухость и нарушение барьера. Требуется физиологичный подход: компенсировать дефицит липидов, восстановить целостность гидролипидной мантии."
+            return "Сухость и нарушение барьера. Требуется физиологичный подход."
 
         return _safe_trim(result, 400)
 
