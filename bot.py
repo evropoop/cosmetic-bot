@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import urllib.parse
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
@@ -31,10 +32,20 @@ UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
+# Ссылки на оферту и согласие
 OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
 CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
-MARIYA_PROTOCOL_URL = "https://t.me/miroslavskayaboks?text=Привет!%20Я%20хочу%20Персональный%20PDF-протокол.%20Меня%20зовут:%20"
-MARIYA_BOX_URL = "https://t.me/miroslavskayaboks?text=Привет!%20Я%20хочу%20Индивидуальный%20Бокс.%20Меня%20зовут:%20"
+
+# ================== ГЕНЕРАЦИЯ ССЫЛОК ДЛЯ МАРИИ ==================
+MARIYA_USERNAME = "miroslavskayaboks"
+
+# Тексты сообщений, которые будут подставляться в личку
+TEXT_PROTOCOL = "Привет! Я хочу Персональный PDF-протокол. Меня зовут: "
+TEXT_BOX = "Привет! Я хочу Индивидуальный Бокс. Меня зовут: "
+
+# Автоматическое кодирование ссылок (исправляет баг с одинаковыми сообщениями)
+MARIYA_PROTOCOL_URL = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(TEXT_PROTOCOL)}"
+MARIYA_BOX_URL = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(TEXT_BOX)}"
 
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
