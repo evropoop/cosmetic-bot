@@ -4,7 +4,7 @@ import logging
 import urllib.parse
 from datetime import datetime, timedelta
 
-from aiogram import Bot, Dispatcher, F, types
+from aiogram import Bot, Dispatcher, F, types, BaseMiddleware
 from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -52,6 +52,19 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 db.init_db()
+
+class ActivityMiddleware(BaseMiddleware):
+    """Обновляет last_activity_at при каждом сообщении/нажатии пользователя."""
+    async def __call__(self, handler, event, data):
+        try:
+            if hasattr(event, "from_user") and event.from_user:
+                db.touch_user_activity(event.from_user.id)
+        except Exception:
+            pass
+        return await handler(event, data)
+
+dp.message.middleware(ActivityMiddleware())
+dp.callback_query.middleware(ActivityMiddleware())
 
 ANALYZABLE_STATUSES = {"bad", "hidden_threat", "conditional", "good", "neutral", "hydrophilic"}
 
@@ -106,7 +119,6 @@ def get_protocol_keyboard():
     ])
 
 
-# ================== ПЭЙВОЛ ==================
 PAYWALL_TEXT = (
     "Проверка завершена — доступ к полному алгоритму пока не активирован. "
     "Выберите удобный для вас тариф:\n\n"
@@ -203,17 +215,22 @@ SURVEY_QUESTIONS = [
     },
 ]
 
-
 RETENTION_TEXTS = {
-    "1m": (
-        "Проверка завершена — доступ к полному алгоритму пока не активирован. "
-        "Выберите удобный для вас тариф:"
-    ),
+    "1m": "Проверка завершена — доступ к полному алгоритму пока не активирован. Выберите удобный для вас тариф:",
     "2h": "Вы остановились на этапе активации доступа. Ваша анкета сохранена. Чтобы я мог проанализировать вашу косметичку и выстроить протокол восстановления барьера, завершите оформление. Я готов приступить к работе.",
     "24h": "Прошли сутки с момента нашей паузы. Напоминаю, что каждый день использования неподходящей косметики усугубляет состояние гидролипидной мантии. Давайте остановим этот процесс и проведем аудит прямо сейчас. Открываем доступ?",
     "48h": "Я закрываю ваш незаконченный сеанс в системе. Если вы решите навести порядок в домашнем уходе и перестать тратить деньги на агрессивные средства, возвращайтесь. Бот будет готов к работе, когда вы примете решение.",
     "7d": "Прошла неделя с момента вашего визита. За это время вы нанесли свой привычный уход минимум 14 раз. Если в вашей косметичке есть скрытые аллергены или разрушающие барьер активы, за эту неделю вы усугубили дефицит липидов. Готовы провести химический аудит?",
     "30d": "Прошел ровно месяц. В дерматологии 28–35 дней — это полный цикл обновления эпидермиса. Если вы не меняли стратегию ухода, состояние кожи осталось прежним или ухудшилось. Если вы устали тестировать косметику вслепую, доступ к системе открыт.",
+}
+
+RETENTION_DELAYS = {
+    "1m":  60,
+    "2h":  7200,
+    "24h": 86400,
+    "48h": 172800,
+    "7d":  604800,
+    "30d": 2592000,
 }
 
 
@@ -237,12 +254,26 @@ async def _send_retention_notification(user_id: int, notif_type: str):
 
 
 async def retention_worker():
+    """Отправляет уведомления только если с момента последнего сообщения прошло X."""
     logger.info("⏰ Retention-воркер запущен")
     while True:
         try:
             due = db.get_due_notifications()
             for n in due:
-                await _send_retention_notification(n["user_id"], n["type"])
+                user_id = n["user_id"]
+                notif_type = n["type"]
+                delay = RETENTION_DELAYS.get(notif_type, 0)
+
+                last_activity = db.get_last_activity(user_id)
+
+                if last_activity and delay > 0:
+                    elapsed = (datetime.now() - last_activity).total_seconds()
+                    if elapsed < delay:
+                        new_time = last_activity + timedelta(seconds=delay)
+                        db.reschedule_notification(n["id"], new_time)
+                        continue
+
+                await _send_retention_notification(user_id, notif_type)
                 db.mark_notification_sent(n["id"])
         except Exception as e:
             logger.error(f"Ошибка в retention-воркере: {e}")
@@ -695,7 +726,6 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ВЫБОР ТИПА СРЕДСТВА ==================
 PHOTO_HINT = (
     "📸 Фото состава крупно, без бликов (круглые баночки — с 2-3 сторон). "
     "Или скопируйте состав из интернета!"
@@ -732,7 +762,6 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ПОЛУЧЕНИЕ ФОТО: НАКАПЛИВАЕМ, НЕ АНАЛИЗИРУЕМ ==================
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -777,7 +806,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     )
 
 
-# ================== АНАЛИЗ НАКОПЛЕННЫХ ФОТО ==================
 @dp.callback_query(F.data == "analyze_photos")
 async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -878,7 +906,6 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ПОЛУЧЕНИЕ ТЕКСТА: АНАЛИЗИРУЕМ СРАЗУ ==================
 @dp.message(StateFilter(Form.waiting_for_composition))
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
