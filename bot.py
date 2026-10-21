@@ -329,8 +329,21 @@ async def code_box(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "🤖 Собрать уход с Романом")
 async def gather_care_start(message: types.Message, state: FSMContext):
-    user = db.get_or_create_user(message.from_user.id)
-    if check_user_limits(message.from_user.id, user):
+    user_id = message.from_user.id
+    user = db.get_or_create_user(user_id)
+
+    # Проверка на заполненную анкету
+    if user.get("survey_done", 0) == 0:
+        await message.answer(
+            "Для того чтобы я мог качественно проанализировать ваш уход, мне нужно узнать вашу кожу. "
+            "Пожалуйста, пройдите короткую диагностику 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="▶️ Пройти анкету", callback_data="start_diagnosis")]
+            ])
+        )
+        return
+
+    if check_user_limits(user_id, user):
         await message.answer(
             "Какое уходовое средство вы хотите проверить?",
             reply_markup=get_next_category_keyboard()
@@ -617,8 +630,21 @@ async def finish_survey(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "go_scanner")
 async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
-    user = db.get_or_create_user(callback.from_user.id)
-    if check_user_limits(callback.from_user.id, user):
+    user_id = callback.from_user.id
+    user = db.get_or_create_user(user_id)
+
+    if user.get("survey_done", 0) == 0:
+        await callback.message.answer(
+            "Для того чтобы я мог качественно проанализировать ваш уход, мне нужно узнать вашу кожу. "
+            "Пожалуйста, пройдите короткую диагностику 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="▶️ Пройти анкету", callback_data="start_diagnosis")]
+            ])
+        )
+        await callback.answer()
+        return
+
+    if check_user_limits(user_id, user):
         await callback.message.answer(
             "Какое уходовое средство вы хотите проверить?",
             reply_markup=get_next_category_keyboard()
