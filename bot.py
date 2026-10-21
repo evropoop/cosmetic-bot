@@ -1,3 +1,8 @@
+Понял. Объединил текст в одно сообщение (так как Telegram всегда прикрепляет кнопки под всем текстом), заменил формулировки и обновил названия кнопок. То же самое сделал для кнопок в retention-уведомлениях, чтобы они совпадали.
+
+Вот полный `bot.py` (копируй строго код из блока):
+
+```python
 import os
 import asyncio
 import logging
@@ -111,26 +116,25 @@ def get_protocol_keyboard():
 
 # ================== ПЭЙВОЛ ==================
 async def send_paywall(message: types.Message):
-    await message.answer(
-        "У вас нет оплаченных тарифов.\n\n"
-        "Предлагаем выбрать один из двух тарифов ниже:"
-    )
-    await message.answer(
-        "Полная ревизия вашего ухода.\n"
+    text = (
+        "Выберите формат работы с Романом Андреевичем:\n\n"
+        "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
+        "Полная ревизия вашей косметички.\n"
         "• Безлимитный разбор составов на месяц.\n"
         "• Поиск скрытых угроз и маркетинговых пустышек.\n"
-        "• Защита от покупок агрессивной и комедогенной косметики.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")]
-        ])
-    )
-    await message.answer(
+        "• Защита от покупок комедогенной косметики.\n\n"
+        "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
         "Сопровождение на полный цикл обновления кожи.\n"
         "• 3 месяца безлимитного разбора составов.\n"
-        "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.",
+        "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние."
+    )
+    await message.answer(
+        text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Восстановление (90 дней) — 2500 ₽ 🔥", callback_data="pay_restore_90")]
-        ])
+            [InlineKeyboardButton(text="💳 Оплатить Аудит — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="🔥 Оплатить Восстановление — 2500 ₽", callback_data="pay_restore_90")]
+        ]),
+        parse_mode="HTML"
     )
 
 
@@ -221,10 +225,10 @@ async def _send_retention_notification(user_id: int, notif_type: str):
     try:
         await bot.send_message(
             user_id,
-            f"🤖 Роман Андреевич: {text}",
+            text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
-                [InlineKeyboardButton(text="💳 Восстановление (90 дней) — 2500 ₽ 🔥", callback_data="pay_restore_90")],
+                [InlineKeyboardButton(text="💳 Оплатить Аудит — 1000 ₽", callback_data="pay_audit_30")],
+                [InlineKeyboardButton(text="🔥 Оплатить Восстановление — 2500 ₽", callback_data="pay_restore_90")],
             ]),
             parse_mode="HTML"
         )
@@ -332,7 +336,6 @@ async def gather_care_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
 
-    # Проверка на заполненную анкету
     if user.get("survey_done", 0) == 0:
         await message.answer(
             "Для того чтобы я мог качественно проанализировать ваш уход, мне нужно узнать вашу кожу. "
@@ -801,6 +804,8 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
             else:
                 db.schedule_retention_notifications(user_id)
                 await send_paywall(message)
+                await state.update_data(category=None)
+                return
         else:
             await loading_msg.edit_text(verdict)
 
@@ -883,6 +888,8 @@ async def process_composition(message: types.Message, state: FSMContext):
             else:
                 db.schedule_retention_notifications(user_id)
                 await send_paywall(message)
+                await state.update_data(category=None)
+                return
         else:
             await loading_msg.edit_text(verdict)
 
@@ -932,8 +939,8 @@ async def my_subscription(message: types.Message):
         await message.answer(
             "❌ У вас нет активной подписки.\n\nОформите доступ:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
-                [InlineKeyboardButton(text="💳 Восстановление (90 дней) — 2500 ₽ 🔥", callback_data="pay_restore_90")],
+                [InlineKeyboardButton(text="💳 Оплатить Аудит — 1000 ₽", callback_data="pay_audit_30")],
+                [InlineKeyboardButton(text="🔥 Оплатить Восстановление — 2500 ₽", callback_data="pay_restore_90")],
             ])
         )
     else:
@@ -988,3 +995,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
