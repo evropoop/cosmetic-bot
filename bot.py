@@ -32,24 +32,21 @@ UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
-# Ссылки на оферту и согласие
+# Ссылки на документы и Марию
 OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
 CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
 
-# ================== ГЕНЕРАЦИЯ ССЫЛОК ДЛЯ МАРИИ ==================
 MARIYA_USERNAME = "miroslavskayaboks"
-
-# Тексты сообщений, которые будут подставляться в личку
 TEXT_PROTOCOL = "Привет! Я хочу Персональный PDF-протокол. Меня зовут: "
 TEXT_BOX = "Привет! Я хочу Индивидуальный Бокс. Меня зовут: "
 
-# Автоматическое кодирование ссылок (исправляет баг с одинаковыми сообщениями)
 MARIYA_PROTOCOL_URL = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(TEXT_PROTOCOL)}"
 MARIYA_BOX_URL = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(TEXT_BOX)}"
 
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
 
+# ================== НАСТРОЙКА ==================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -70,11 +67,10 @@ class Form(StatesGroup):
     waiting_for_composition = State()
 
 
+# ================== КЛАВИАТУРЫ ==================
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🧼 Очищение")],
-        [KeyboardButton(text="🧴 Несмываемый уход")],
-        [KeyboardButton(text="👑 Готовый уход от Марии")]
+        [KeyboardButton(text="🤖 Собрать уход с Романом")]
     ], resize_keyboard=True)
 
 
@@ -113,6 +109,7 @@ def get_protocol_keyboard():
     ])
 
 
+# ================== АНКЕТА ==================
 SURVEY_QUESTIONS = [
     {
         "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
@@ -182,7 +179,7 @@ SURVEY_QUESTIONS = [
     },
 ]
 
-
+# ================== RETENTION ==================
 RETENTION_TEXTS = {
     "1m": "Проверка завершена — доступ к полному алгоритму пока не активирован. Если передумаете, я на связи.",
     "2h": "Вы остановились на этапе активации доступа. Ваша анкета сохранена. Чтобы я мог проанализировать вашу косметичку и выстроить протокол восстановления барьера, завершите оформление. Я готов приступить к работе.",
@@ -191,7 +188,6 @@ RETENTION_TEXTS = {
     "7d": "Прошла неделя с момента вашего визита. За это время вы нанесли свой привычный уход минимум 14 раз. Если в вашей косметичке есть скрытые аллергены или разрушающие барьер активы, за эту неделю вы усугубили дефицит липидов. Готовы провести химический аудит?",
     "30d": "Прошел ровно месяц. В дерматологии 28–35 дней — это полный цикл обновления эпидермиса. Если вы не меняли стратегию ухода, состояние кожи осталось прежним или ухудшилось. Если вы устали тестировать косметику вслепую, доступ к системе открыт.",
 }
-
 
 async def _send_retention_notification(user_id: int, notif_type: str):
     text = RETENTION_TEXTS.get(notif_type)
@@ -208,7 +204,6 @@ async def _send_retention_notification(user_id: int, notif_type: str):
     except Exception as e:
         logger.warning(f"Не удалось отправить retention {notif_type} юзеру {user_id}: {e}")
 
-
 async def retention_worker():
     logger.info("⏰ Retention-воркер запущен")
     while True:
@@ -221,7 +216,7 @@ async def retention_worker():
             logger.error(f"Ошибка в retention-воркере: {e}")
         await asyncio.sleep(30)
 
-
+# ================== ВСПОМОГАТЕЛЬНЫЕ ==================
 async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
     data = await state.get_data()
     name = data.get("user_name")
@@ -241,6 +236,39 @@ async def _resolve_user_name(message: types.Message, state: FSMContext, user: di
     return name
 
 
+async def send_paywall(message: types.Message, user_id: int):
+    """Отправляет сообщение с тарифами, если закончились лимиты."""
+    db.schedule_retention_notifications(user_id)
+    
+    await message.answer(
+        "У вас нет оплаченных тарифов. Выберите один из двух вариантов:"
+    )
+    
+    await message.answer(
+        "<b>Аудит (30 дней) — 1000 ₽</b>\n"
+        "Полная ревизия вашего ухода.\n"
+        "• Безлимитный разбор составов на месяц.\n"
+        "• Поиск скрытых угроз и маркетинговых пустышек.\n"
+        "• Защита от покупок агрессивной и комедогенной косметики.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")]
+        ]),
+        parse_mode="HTML"
+    )
+    
+    await message.answer(
+        "<b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
+        "Сопровождение на полный цикл обновления кожи.\n"
+        "• 3 месяца безлимитного разбора составов.\n"
+        "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Восстановление (90 дней) — 2500 ₽ 🔥", callback_data="pay_restore_90")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+# ================== ХЕНДЛЕРЫ ==================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -537,32 +565,47 @@ async def finish_survey(message: types.Message, state: FSMContext):
     await state.set_state(Form.waiting_for_composition)
 
 
-@dp.message(F.text == "🧼 Очищение")
-async def set_mode_wash(message: types.Message, state: FSMContext):
-    user = db.get_or_create_user(message.from_user.id)
-    await _resolve_user_name(message, state, user)
+# ================== ВЫБОР КАТЕГОРИИ И СКАНЕР ==================
+@dp.message(F.text == "🤖 Собрать уход с Романом")
+async def start_scanner(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = db.get_or_create_user(user_id)
+    
+    is_unlimited = user_id in UNLIMITED_IDS
+    has_sub = db.has_active_subscription(user_id)
+    has_free = user.get("free_checks", 0) > 0
 
-    await state.update_data(category="wash")
-    await message.answer(
-        "🧼 Режим: *Очищение / Демакияж*.\n\n"
-        "Пришлите состав средства (пенка, гель, гидрофильное масло).",
-        parse_mode="Markdown",
-        reply_markup=get_mode_keyboard()
-    )
+    if is_unlimited or has_sub or has_free:
+        await state.update_data(category=None)
+        await state.set_state(Form.waiting_for_composition)
+        await message.answer(
+            "Какое уходовое средство вы хотите проверить?",
+            reply_markup=get_next_category_keyboard()
+        )
+    else:
+        await send_paywall(message, user_id)
 
 
-@dp.message(F.text == "🧴 Несмываемый уход")
-async def set_mode_care(message: types.Message, state: FSMContext):
-    user = db.get_or_create_user(message.from_user.id)
-    await _resolve_user_name(message, state, user)
+@dp.callback_query(F.data == "go_scanner")
+async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    user = db.get_or_create_user(user_id)
+    
+    is_unlimited = user_id in UNLIMITED_IDS
+    has_sub = db.has_active_subscription(user_id)
+    has_free = user.get("free_checks", 0) > 0
 
-    await state.update_data(category="care")
-    await message.answer(
-        "🧴 Режим: *Несмываемый уход*.\n\n"
-        "Пришлите состав средства (крем, сыворотка, тоник).",
-        parse_mode="Markdown",
-        reply_markup=get_mode_keyboard()
-    )
+    if is_unlimited or has_sub or has_free:
+        await state.update_data(category=None)
+        await state.set_state(Form.waiting_for_composition)
+        await callback.message.answer(
+            "Какое уходовое средство вы хотите проверить?",
+            reply_markup=get_next_category_keyboard()
+        )
+    else:
+        await send_paywall(callback.message, user_id)
+    await callback.answer()
 
 
 @dp.callback_query(F.data == "next_wash")
@@ -572,6 +615,7 @@ async def next_category_wash(callback: types.CallbackQuery, state: FSMContext):
     except Exception:
         pass
     await state.update_data(category="wash")
+    await state.set_state(Form.waiting_for_composition)
     await callback.message.answer(
         "🧼 Режим: *Смываемое средство*.\n\n"
         "Пришлите состав (пенка, гель, гидрофильное масло).",
@@ -587,51 +631,12 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
     except Exception:
         pass
     await state.update_data(category="care")
+    await state.set_state(Form.waiting_for_composition)
     await callback.message.answer(
         "🧴 Режим: *Несмываемое средство*.\n\n"
         "Пришлите состав (крем, сыворотка, тоник).",
         parse_mode="Markdown"
     )
-    await callback.answer()
-
-
-@dp.message(F.text == "👑 Готовый уход от Марии")
-async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
-    text = (
-        "▫️ <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного PDF-руководства. "
-        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку каждого "
-        "средства и распишет понятную инструкцию (что и как наносить утром и вечером). Вы покупаете "
-        "всё сами по готовому списку. Этот файл останется с вами как надежная база: Мария добавит "
-        "позиции на перспективу, чтобы вы всегда знали, какими средствами дополнить и усилить свой "
-        "протокол.\n\n"
-        "▫️ <b>Индивидуальный Бокс (от 9 000 ₽)</b> — премиальный формат ухода «под ключ». "
-        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
-        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
-        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение от "
-        "Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
-        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
-        "коже по протоколу."
-    )
-    await message.answer(text, reply_markup=get_protocol_keyboard(), parse_mode="HTML")
-
-    user = db.get_or_create_user(message.from_user.id)
-    await _resolve_user_name(message, state, user)
-
-    current_state = await state.get_state()
-    if current_state != Form.waiting_for_composition:
-        await state.set_state(Form.waiting_for_composition)
-
-
-@dp.callback_query(F.data == "go_scanner")
-async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.message.answer(
-        "Отличный план! Я даю вам 2 бесплатные проверки. Прямо сейчас откройте сайт "
-        "любого косметического магазина (или подойдите к полке), найдите средство, "
-        "которое хотите купить или уже используете, и пришлите мне фото его состава (INCI).",
-        reply_markup=get_mode_keyboard()
-    )
-    await state.set_state(Form.waiting_for_composition)
     await callback.answer()
 
 
@@ -661,29 +666,26 @@ async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "back_to_scanner")
 async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
-    await callback.message.answer(
-        "Отличный план! Я даю вам 2 бесплатные проверки. Пришлите состав средства (INCI).",
-        reply_markup=get_mode_keyboard()
-    )
-    await state.set_state(Form.waiting_for_composition)
+    user_id = callback.from_user.id
+    user = db.get_or_create_user(user_id)
+    
+    is_unlimited = user_id in UNLIMITED_IDS
+    has_sub = db.has_active_subscription(user_id)
+    has_free = user.get("free_checks", 0) > 0
+
+    if is_unlimited or has_sub or has_free:
+        await state.update_data(category=None)
+        await state.set_state(Form.waiting_for_composition)
+        await callback.message.answer(
+            "Какое уходовое средство вы хотите проверить?",
+            reply_markup=get_next_category_keyboard()
+        )
+    else:
+        await send_paywall(callback.message, user_id)
     await callback.answer()
 
 
-PAYWALL_TEXT = (
-    "Это была ваша последняя бесплатная проверка.\n\n"
-    "Выберите формат дальнейшей работы с Романом Андреевичем:\n\n"
-    "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
-    "Полная ревизия вашего ухода.\n"
-    "• Безлимитный разбор составов на месяц.\n"
-    "• Поиск скрытых угроз и маркетинговых пустышек.\n"
-    "• Защита от покупок агрессивной и комедогенной косметики.\n\n"
-    "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
-    "Сопровождение на полный цикл обновления кожи.\n"
-    "• 3 месяца безлимитного разбора составов.\n"
-    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние."
-)
-
-
+# ================== ОБРАБОТКА СОСТАВОВ ==================
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -709,13 +711,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     is_unlimited = (user_id in UNLIMITED_IDS)
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
-        db.schedule_retention_notifications(user_id)
-        await message.answer(
-            PAYWALL_TEXT,
-            reply_markup=get_subscription_keyboard(),
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
+        await send_paywall(message, user_id)
         return
 
     loading_msg = await message.answer("🔬 Анализирую фото состава...")
@@ -766,13 +762,7 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
             if remaining > 0:
                 await message.answer(f"Осталось бесплатных проверок: {remaining}")
             else:
-                db.schedule_retention_notifications(user_id)
-                await message.answer(
-                    PAYWALL_TEXT,
-                    reply_markup=get_subscription_keyboard(),
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
+                await send_paywall(message, user_id)
         else:
             await loading_msg.edit_text(verdict)
 
@@ -814,13 +804,7 @@ async def process_composition(message: types.Message, state: FSMContext):
     is_unlimited = (user_id in UNLIMITED_IDS)
 
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
-        db.schedule_retention_notifications(user_id)
-        await message.answer(
-            PAYWALL_TEXT,
-            reply_markup=get_subscription_keyboard(),
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
+        await send_paywall(message, user_id)
         return
 
     composition = message.text
@@ -859,13 +843,7 @@ async def process_composition(message: types.Message, state: FSMContext):
             if remaining > 0:
                 await message.answer(f"Осталось бесплатных проверок: {remaining}")
             else:
-                db.schedule_retention_notifications(user_id)
-                await message.answer(
-                    PAYWALL_TEXT,
-                    reply_markup=get_subscription_keyboard(),
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
+                await send_paywall(message, user_id)
         else:
             await loading_msg.edit_text(verdict)
 
@@ -882,6 +860,7 @@ async def process_composition(message: types.Message, state: FSMContext):
         )
 
 
+# ================== ОПЛАТА ==================
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
     await callback.message.answer(
@@ -928,16 +907,17 @@ async def help_text(message: types.Message):
     await message.answer(
         "🤖 Я — Роман Андреевич, ИИ-аналитик косметических составов.\n\n"
         "1. Пройдите диагностику\n"
-        "2. Выберите тип средства:\n"
+        "2. Нажмите «🤖 Собрать уход с Романом»\n"
+        "3. Выберите тип средства:\n"
         "   🫧 Смываемое — пенки, гели, гидрофильные масла\n"
         "   🧴 Несмываемое — кремы, сыворотки, тоники\n"
-        "   👑 Готовый уход от Марии — премиальный сервис подбора\n"
-        "3. Пришлите фото состава или текст (INCI)\n"
-        "4. Получите разбор\n\n"
+        "4. Пришлите фото состава или текст (INCI)\n"
+        "5. Получите разбор\n\n"
         "📌 Связь: @miroslavskayaboks"
     )
 
 
+# ================== ЗАПУСК ==================
 async def main():
     logger.info("🚀 Бот запущен!")
 
