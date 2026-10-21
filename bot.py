@@ -31,7 +31,6 @@ UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
-# Ссылки на документы и Марию
 OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
 CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
 MARIYA_PROTOCOL_URL = "https://t.me/miroslavskayaboks?text=Привет!%20Я%20хочу%20Персональный%20PDF-протокол.%20Меня%20зовут:%20"
@@ -40,7 +39,6 @@ MARIYA_BOX_URL = "https://t.me/miroslavskayaboks?text=Привет!%20Я%20хо�
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
 
-# ================== НАСТРОЙКА ==================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -50,11 +48,9 @@ dp = Dispatcher(storage=storage)
 
 db.init_db()
 
-# Статусы, при которых лимит СПИСЫВАЕТСЯ
 ANALYZABLE_STATUSES = {"bad", "hidden_threat", "conditional", "good", "neutral", "hydrophilic"}
 
 
-# ================== FSM ==================
 class Form(StatesGroup):
     waiting_for_name = State()
     survey = State()
@@ -63,7 +59,6 @@ class Form(StatesGroup):
     waiting_for_composition = State()
 
 
-# ================== КЛАВИАТУРЫ ==================
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🧼 Очищение")],
@@ -107,7 +102,6 @@ def get_protocol_keyboard():
     ])
 
 
-# ================== АНКЕТА (6 ВОПРОСОВ) ==================
 SURVEY_QUESTIONS = [
     {
         "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
@@ -178,7 +172,6 @@ SURVEY_QUESTIONS = [
 ]
 
 
-# ================== RETENTION-УВЕДОМЛЕНИЯ ==================
 RETENTION_TEXTS = {
     "1m": "Проверка завершена — доступ к полному алгоритму пока не активирован. Если передумаете, я на связи.",
     "2h": "Вы остановились на этапе активации доступа. Ваша анкета сохранена. Чтобы я мог проанализировать вашу косметичку и выстроить протокол восстановления барьера, завершите оформление. Я готов приступить к работе.",
@@ -218,7 +211,6 @@ async def retention_worker():
         await asyncio.sleep(30)
 
 
-# ================== ВСПОМОГАТЕЛЬНАЯ: имя ==================
 async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
     data = await state.get_data()
     name = data.get("user_name")
@@ -238,14 +230,12 @@ async def _resolve_user_name(message: types.Message, state: FSMContext, user: di
     return name
 
 
-# ================== /START ==================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username
     user = db.get_or_create_user(user_id, username)
 
-    # Проверка карантина
     if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
         completed_at = user.get("survey_completed_at")
         if completed_at:
@@ -271,7 +261,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Не удалось отправить кружок: {e}")
 
-    # Сообщение после кружка (то, что видит пользователь после нажатия /start)
     await message.answer(
         f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
         f"Нажимая кнопку, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
@@ -287,7 +276,6 @@ async def code_box(message: types.Message, state: FSMContext):
     await cmd_start(message, state)
 
 
-# ================== СТАРТ ДИАГНОСТИКИ ==================
 @dp.callback_query(F.data == "start_diagnosis")
 async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
@@ -326,7 +314,6 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.set_state(Form.survey)
     await state.update_data(survey_step=0, tags=[])
 
-    # Отправляем и удаляем промежуточное сообщение
     msg = await message.answer(
         f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, "
         f"с чем мы работаем. 👇"
@@ -340,7 +327,6 @@ async def process_name(message: types.Message, state: FSMContext):
     await send_question(message, state)
 
 
-# ================== АНКЕТА ==================
 async def send_question(message: types.Message, state: FSMContext):
     data = await state.get_data()
     step = data.get("survey_step", 0)
@@ -488,7 +474,6 @@ async def process_allergy(message: types.Message, state: FSMContext):
     await send_question(message, state)
 
 
-# ================== ДИАГНОЗ + РАЗВИЛКА ==================
 async def finish_survey(message: types.Message, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
@@ -513,10 +498,8 @@ async def finish_survey(message: types.Message, state: FSMContext):
     else:
         logger.info(f"👑 Безлимит: карантин НЕ активирован для user_id={user_id}")
 
-    # 1. Сообщение о завершении
     await message.answer("📊 Диагностика завершена.")
 
-    # 2. Запрос к нейронке
     loading_msg = await message.answer("🔬 Анализирую ваши ответы...")
 
     try:
@@ -531,7 +514,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
         logger.error(f"Не удалось отредактировать сообщение: {e}")
         await message.answer(diagnosis)
 
-    # 3. Развилка
     await message.answer(
         "Теперь наша задача — выстроить безопасный физиологичный уход.\n\n"
         "Вы можете собрать САМОСТОЯТЕЛЬНО , проверяя каждое средство вместе со мной, "
@@ -543,7 +525,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
     await state.set_state(Form.waiting_for_composition)
 
 
-# ================== РЕЖИМЫ ==================
 @dp.message(F.text == "🧼 Очищение")
 async def set_mode_wash(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(message.from_user.id)
@@ -602,7 +583,6 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ТРИГГЕР ПРОДАЖ ==================
 @dp.message(F.text == "👑 Готовый уход от Марии")
 async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
     text = (
@@ -630,7 +610,6 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
         await state.set_state(Form.waiting_for_composition)
 
 
-# ================== ШАГ 4 ==================
 @dp.callback_query(F.data == "go_scanner")
 async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
@@ -644,7 +623,6 @@ async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ШАГ 6 / 7 (Мария / Нет ухода) ==================
 @dp.callback_query(F.data.in_(["want_mariya_box", "no_care"]))
 async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
@@ -668,7 +646,6 @@ async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ВОЗВРАТ В СКАНЕР ==================
 @dp.callback_query(F.data == "back_to_scanner")
 async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
@@ -680,7 +657,6 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ПЭЙВОЛ (БЕЗ ОФЕРТЫ) ==================
 PAYWALL_TEXT = (
     "Это была ваша последняя бесплатная проверка.\n\n"
     "Выберите формат дальнейшей работы с Романом Андреевичем:\n\n"
@@ -696,7 +672,6 @@ PAYWALL_TEXT = (
 )
 
 
-# ================== ФОТО СОСТАВА ==================
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -721,7 +696,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
-    # ===== ПЭЙВОЛ =====
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         db.schedule_retention_notifications(user_id)
         await message.answer(
@@ -754,7 +728,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         verdict = result["verdict"]
         status = result["status"]
 
-        # ===== НЕ РАСПОЗНАЛ → НЕ СПИСЫВАЕМ =====
         if status not in ANALYZABLE_STATUSES:
             await loading_msg.edit_text(
                 "⚠️ Фото не читается полностью.\n\n"
@@ -804,7 +777,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         )
 
 
-# ================== ТЕКСТ СОСТАВА ==================
 @dp.message(StateFilter(Form.waiting_for_composition))
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -829,7 +801,6 @@ async def process_composition(message: types.Message, state: FSMContext):
 
     is_unlimited = (user_id in UNLIMITED_IDS)
 
-    # ===== ПЭЙВОЛ =====
     if not is_unlimited and user["free_checks"] <= 0 and not db.has_active_subscription(user_id):
         db.schedule_retention_notifications(user_id)
         await message.answer(
@@ -850,7 +821,6 @@ async def process_composition(message: types.Message, state: FSMContext):
         verdict = result["verdict"]
         status = result["status"]
 
-        # ===== НЕ РАСПОЗНАЛ → НЕ СПИСЫВАЕМ =====
         if status not in ANALYZABLE_STATUSES:
             await loading_msg.edit_text(
                 "⚠️ В этом сообщении я не вижу состава (INCI).\n\n"
@@ -900,7 +870,6 @@ async def process_composition(message: types.Message, state: FSMContext):
         )
 
 
-# ================== ОПЛАТА ==================
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
     await callback.message.answer(
@@ -917,7 +886,6 @@ async def pay_restore_90(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# ================== ПОДПИСКА ==================
 @dp.message(F.text == "/sub")
 async def my_subscription(message: types.Message):
     user_id = message.from_user.id
@@ -958,11 +926,9 @@ async def help_text(message: types.Message):
     )
 
 
-# ================== ЗАПУСК ==================
 async def main():
     logger.info("🚀 Бот запущен!")
 
-    # Настройка описания бота (видно до нажатия СТАРТ)
     try:
         await bot.set_my_description(
             description=(
@@ -994,4 +960,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-```
