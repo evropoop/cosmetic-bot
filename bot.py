@@ -22,7 +22,6 @@ from ai_analyzer import (
     generate_diagnosis
 )
 
-# ================== ЗАГРУЗКА ПЕРЕМЕННЫХ ==================
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
@@ -65,7 +64,6 @@ class Form(StatesGroup):
     waiting_for_composition = State()
 
 
-# ================== ПРОВЕРКА ЛИМИТОВ ==================
 def check_user_limits(user_id: int, user: dict) -> bool:
     is_unlimited = (user_id in UNLIMITED_IDS)
     has_sub = db.has_active_subscription(user_id)
@@ -73,7 +71,6 @@ def check_user_limits(user_id: int, user: dict) -> bool:
     return is_unlimited or has_sub or has_checks
 
 
-# ================== КЛАВИАТУРЫ ==================
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🤖 Собрать уход с Романом")],
@@ -109,7 +106,6 @@ def get_protocol_keyboard():
     ])
 
 
-# ================== ПЭЙВОЛ ==================
 async def send_paywall(message: types.Message):
     text = (
         "Выберите формат работы с Романом Андреевичем:\n\n"
@@ -691,16 +687,23 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# ================== ВЫБОР ТИПА СРЕДСТВА ==================
+PHOTO_HINT = (
+    "📸 Фото состава крупно, без бликов (круглые баночки — с 2-3 сторон). "
+    "Или скопируйте состав из интернета!"
+)
+
+
 @dp.callback_query(F.data == "next_wash")
 async def next_category_wash(callback: types.CallbackQuery, state: FSMContext):
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await state.update_data(category="wash")
+    await state.update_data(category="wash", photo_urls=[])
     await callback.message.answer(
         "🧼 Режим: *Смываемое средство*.\n\n"
-        "Пришлите состав (пенка, гель, гидрофильное масло).",
+        f"Пришлите состав текстом или фото.\n\n{PHOTO_HINT}",
         parse_mode="Markdown"
     )
     await callback.answer()
@@ -712,21 +715,20 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await state.update_data(category="care")
+    await state.update_data(category="care", photo_urls=[])
     await callback.message.answer(
         "🧴 Режим: *Несмываемое средство*.\n\n"
-        "Пришлите состав (крем, сыворотка, тоник).",
+        f"Пришлите состав текстом или фото.\n\n{PHOTO_HINT}",
         parse_mode="Markdown"
     )
     await callback.answer()
 
 
+# ================== ПОЛУЧЕНИЕ ФОТО: НАКАПЛИВАЕМ, НЕ АНАЛИЗИРУЕМ ==================
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
-
-    user_name = await _resolve_user_name(message, state, user)
 
     data = await state.get_data()
     category_fsm = data.get("category", None)
@@ -738,35 +740,77 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         )
         return
 
-    if category_fsm == "wash":
-        category = "cleansing"
-    else:
-        category = "leave_on"
-
     if not check_user_limits(user_id, user):
         db.schedule_retention_notifications(user_id)
         await send_paywall(message)
         return
 
-    loading_msg = await message.answer("🔬 Анализирую фото состава...")
-
+    # Сохраняем URL фото
     photo = message.photo[-1]
-    file_id = photo.file_id
-
     try:
-        file = await bot.get_file(file_id)
+        file = await bot.get_file(photo.file_id)
         photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
     except Exception as e:
         logger.error(f"Не удалось получить файл: {e}")
-        await loading_msg.edit_text(
-            "❌ Не удалось загрузить фото. Попробуйте ещё раз — лимит не списан."
-        )
+        await message.answer("❌ Не удалось загрузить фото. Попробуйте ещё раз.")
         return
+
+    photo_urls = data.get("photo_urls", [])
+    if not isinstance(photo_urls, list):
+        photo_urls = []
+    photo_urls.append(photo_url)
+    await state.update_data(photo_urls=photo_urls)
+
+    await message.answer(
+        f"📸 Фото добавлено (всего: {len(photo_urls)}).\n\n"
+        f"Можете отправить ещё фото или нажмите «Анализировать».",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
+        ])
+    )
+
+
+# ================== АНАЛИЗ НАКОПЛЕННЫХ ФОТО ==================
+@dp.callback_query(F.data == "analyze_photos")
+async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user = db.get_or_create_user(user_id)
+
+    data = await state.get_data()
+    photo_urls = data.get("photo_urls", [])
+    category_fsm = data.get("category", None)
+
+    if not photo_urls:
+        await callback.answer("Фото не найдены. Отправьте их ещё раз.", show_alert=True)
+        return
+
+    if not category_fsm:
+        await callback.answer("Сначала выберите тип средства.", show_alert=True)
+        return
+
+    if not check_user_limits(user_id, user):
+        db.schedule_retention_notifications(user_id)
+        await send_paywall(callback.message)
+        await callback.answer()
+        return
+
+    user_name = await _resolve_user_name(callback.message, state, user)
+
+    if category_fsm == "wash":
+        category = "cleansing"
+    else:
+        category = "leave_on"
+
+    loading_msg = await callback.message.answer("🔬 Анализирую фото состава...")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     tags = user.get("tags", [])
 
     try:
-        result = await analyze_composition_photo(photo_url, tags, user_name, category)
+        result = await analyze_composition_photo(photo_urls, tags, user_name, category)
         verdict = result["verdict"]
         status = result["status"]
 
@@ -775,11 +819,19 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
                 "⚠️ Фото не читается полностью.\n\n"
                 "Пожалуйста, сделайте более чёткое фото этикетки (при хорошем свете, "
                 "крупным планом, чтобы был виден весь список) или пришлите состав текстом.\n\n"
-                "Лимит не списан, попробуйте ещё раз."
+                "Лимит не списан. Отправьте новое фото или нажмите «Анализировать» снова."
             )
+            # Не очищаем photo_urls — пусть попробует ещё
+            await callback.message.answer(
+                "📸 Отправьте ещё фото (добавится к текущим) или нажмите «Анализировать» снова.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
+                ])
+            )
+            await callback.answer()
             return
 
-        db.save_analysis(user_id, f"[ФОТО] {file_id}", verdict, status)
+        db.save_analysis(user_id, f"[ФОТО x{len(photo_urls)}] {photo_urls[0]}", verdict, status)
 
         if status in ["bad", "hidden_threat"]:
             db.increment_bad_bottles(user_id)
@@ -789,23 +841,24 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
         is_unlimited = (user_id in UNLIMITED_IDS)
         if is_unlimited:
             await loading_msg.edit_text(verdict)
-            await message.answer("👑 Режим безлимита: проверок не ограничено.")
+            await callback.message.answer("👑 Режим безлимита: проверок не ограничено.")
         elif not db.has_active_subscription(user_id):
             db.decrement_free_checks(user_id)
             remaining = db.get_free_checks(user_id)
             await loading_msg.edit_text(verdict)
             if remaining > 0:
-                await message.answer(f"Осталось бесплатных проверок: {remaining}")
+                await callback.message.answer(f"Осталось бесплатных проверок: {remaining}")
             else:
                 db.schedule_retention_notifications(user_id)
-                await send_paywall(message)
-                await state.update_data(category=None)
+                await send_paywall(callback.message)
+                await state.update_data(category=None, photo_urls=[])
+                await callback.answer()
                 return
         else:
             await loading_msg.edit_text(verdict)
 
-        await state.update_data(category=None)
-        await message.answer(
+        await state.update_data(category=None, photo_urls=[])
+        await callback.message.answer(
             "Проверим следующее средство? Уточните, оно смываемое или нет:",
             reply_markup=get_next_category_keyboard()
         )
@@ -816,15 +869,29 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
             "❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан."
         )
 
+    await callback.answer()
 
+
+# ================== ПОЛУЧЕНИЕ ТЕКСТА: АНАЛИЗИРУЕМ СРАЗУ ==================
 @dp.message(StateFilter(Form.waiting_for_composition))
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user = db.get_or_create_user(user_id)
 
+    data = await state.get_data()
+
+    # Если уже есть накопленные фото — просим сначала нажать "Анализировать"
+    if data.get("photo_urls"):
+        await message.answer(
+            "📸 У вас уже есть загруженные фото. Нажмите «Анализировать» или отправьте ещё фото.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
+            ])
+        )
+        return
+
     user_name = await _resolve_user_name(message, state, user)
 
-    data = await state.get_data()
     category_fsm = data.get("category", None)
 
     if not category_fsm:
@@ -834,15 +901,15 @@ async def process_composition(message: types.Message, state: FSMContext):
         )
         return
 
-    if category_fsm == "wash":
-        category = "cleansing"
-    else:
-        category = "leave_on"
-
     if not check_user_limits(user_id, user):
         db.schedule_retention_notifications(user_id)
         await send_paywall(message)
         return
+
+    if category_fsm == "wash":
+        category = "cleansing"
+    else:
+        category = "leave_on"
 
     composition = message.text
     tags = user.get("tags", [])
@@ -883,12 +950,12 @@ async def process_composition(message: types.Message, state: FSMContext):
             else:
                 db.schedule_retention_notifications(user_id)
                 await send_paywall(message)
-                await state.update_data(category=None)
+                await state.update_data(category=None, photo_urls=[])
                 return
         else:
             await loading_msg.edit_text(verdict)
 
-        await state.update_data(category=None)
+        await state.update_data(category=None, photo_urls=[])
         await message.answer(
             "Проверим следующее средство? Уточните, оно смываемое или нет:",
             reply_markup=get_next_category_keyboard()
