@@ -27,12 +27,14 @@ def init_db():
     )
     """)
 
-    # Миграция: user_name
     cursor.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in cursor.fetchall()]
     if "user_name" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN user_name TEXT")
         print("🔄 Миграция: добавлена колонка user_name")
+    if "last_activity_at" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_activity_at TEXT")
+        print("🔄 Миграция: добавлена колонка last_activity_at")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS subscriptions (
@@ -148,6 +150,33 @@ def get_user_name(user_id: int) -> str:
     return ""
 
 
+def touch_user_activity(user_id: int):
+    """Обновляет время последней активности пользователя."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET last_activity_at = ? WHERE user_id = ?",
+        (datetime.now().isoformat(), user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_last_activity(user_id: int):
+    """Возвращает время последней активности или None."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_activity_at FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row[0]:
+        try:
+            return datetime.fromisoformat(row[0])
+        except Exception:
+            return None
+    return None
+
+
 def update_user_tags(user_id: int, tags: list):
     conn = get_connection()
     cursor = conn.cursor()
@@ -212,15 +241,6 @@ def reset_bad_bottles(user_id: int):
     conn.close()
 
 
-def get_bad_bottles_count(user_id: int) -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT bad_bottles_in_a_row FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else 0
-
-
 # ================== ПОДПИСКИ ==================
 def save_subscription(user_id: int, tariff: str):
     conn = get_connection()
@@ -265,50 +285,6 @@ def save_analysis(user_id: int, composition: str, verdict: str, status: str):
     conn.close()
 
 
-def get_last_analyses(user_id: int, limit: int = 5):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT composition, verdict, status FROM analyses WHERE user_id = ? ORDER BY id DESC LIMIT ?",
-        (user_id, limit)
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"composition": r[0], "verdict": r[1], "status": r[2]} for r in rows]
-
-
-# ================== ПЛАТЕЖИ ==================
-def save_payment(user_id: int, amount: int, tariff: str, payment_id: str, status: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO payments (user_id, amount, tariff, payment_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, amount, tariff, payment_id, status, datetime.now().isoformat())
-    )
-    conn.commit()
-    conn.close()
-
-
-def update_payment_status(payment_id: str, status: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE payments SET status = ? WHERE payment_id = ?", (status, payment_id))
-    conn.commit()
-    conn.close()
-
-
-# ================== ЗАЯВКИ ДЛЯ МАРИИ ==================
-def save_lead(user_id: int, username: str, tags: list, photos: list):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO leads (user_id, username, tags, photos, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_id, username, json.dumps(tags, ensure_ascii=False), json.dumps(photos), datetime.now().isoformat())
-    )
-    conn.commit()
-    conn.close()
-
-
 # ================== RETENTION-УВЕДОМЛЕНИЯ ==================
 def _ensure_notifications_table():
     conn = get_connection()
@@ -328,12 +304,19 @@ def _ensure_notifications_table():
 
 
 def schedule_retention_notifications(user_id: int):
-    """Планирует 6 уведомлений после пэйвола: 1м / 2ч / 24ч / 48ч / 7д / 30д."""
+    """Планирует 6 уведомлений: 1м / 2ч / 24ч / 48ч / 7д / 30д."""
     _ensure_notifications_table()
 
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM scheduled_notifications WHERE user_id = ? AND sent = 0", (user_id,))
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM scheduled_notifications WHERE user_id = ? AND sent = 0",
+        (user_id,)
+    )
+    if cursor.fetchone()[0] > 0:
+        conn.close()
+        return
 
     now = datetime.now()
     schedule = [
@@ -382,5 +365,16 @@ def mark_notification_sent(notif_id: int):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE scheduled_notifications SET sent = 1 WHERE id = ?", (notif_id,))
+    conn.commit()
+    conn.close()
+
+
+def reschedule_notification(notif_id: int, new_time: datetime):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE scheduled_notifications SET scheduled_at = ? WHERE id = ?",
+        (new_time.isoformat(), notif_id)
+    )
     conn.commit()
     conn.close()
