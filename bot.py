@@ -83,7 +83,7 @@ def get_start_keyboard():
 def get_path_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 Собрать уход с Романом", callback_data="go_scanner")],
-        [InlineKeyboardButton(text="📝 Забрать протокол Марии", callback_data="want_mariya_box")],
+        [InlineKeyboardButton(text="📝 Забрать уход от Марии", callback_data="want_mariya_box")],
         [InlineKeyboardButton(text="🤷‍♀️ У меня пока нет ухода", callback_data="no_care")],
     ])
 
@@ -514,7 +514,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
         logger.error(f"Не удалось отредактировать сообщение: {e}")
         await message.answer(diagnosis)
 
-    # Измененный текст с жирным шрифтом для капса
     await message.answer(
         "Теперь наша задача — выстроить безопасный физиологичный уход.\n\n"
         "Вы можете собрать свой уход <b>САМОСТОЯТЕЛЬНО</b>, проверяя каждое средство вместе со мной, "
@@ -940,13 +939,12 @@ async def main():
                 "Я проверю ваш текущий уход и будущие покупки, найду скрытые угрозы и помогу "
                 "собрать безопасную базу без маркетинговых пустышек.\n\n"
                 "🎁 Даю 2 бесплатные проверки для новых пользователей.\n"
-                "Жмите СТАРТ 👇\n\n"
+                "Жмите СТАРТ 👇"
             )
         )
         await bot.set_my_short_description(
             short_description=(
-                "AI-аудитор косметики. Разбор составов (INCI) под вашу кожу.\n"
-                "Исполнитель: ИП Мирославская М.В., ИНН 420302908032"
+                "AI-аудитор косметики. Разбор составов (INCI) под вашу кожу."
             )
         )
         logger.info("✅ Описание бота обновлено")
