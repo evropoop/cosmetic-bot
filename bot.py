@@ -30,11 +30,12 @@ MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
-MARIYA_URL = "https://t.me/miroslavskayaboks"
 
-# Ссылки на документы
+# Ссылки на документы и Марию
 OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
 CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
+MARIYA_PROTOCOL_URL = "https://t.me/miroslavskayaboks?text=Привет!%20Я%20хочу%20Персональный%20PDF-протокол.%20Меня%20зовут:%20"
+MARIYA_BOX_URL = "https://t.me/miroslavskayaboks?text=Привет!%20Я%20хочу%20Индивидуальный%20Бокс.%20Меня%20зовут:%20"
 
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
@@ -78,31 +79,17 @@ def get_next_category_keyboard():
     ])
 
 
-def get_accept_offer_keyboard(target: str):
-    """target = 'pay'"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Принять оферту", callback_data=f"accept_offer_{target}")]
-    ])
-
-
-def get_accept_consent_keyboard(target: str):
-    """target = 'pay'"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Даю согласие", callback_data=f"accept_consent_{target}")]
-    ])
-
-
 def get_start_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="▶️ Начать диагностику", callback_data="start_diagnosis")]
+        [InlineKeyboardButton(text="▶️ СТАРТ", callback_data="start_diagnosis")]
     ])
 
 
 def get_path_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Пойду проверять с Романом Андреевичем", callback_data="go_scanner")],
-        [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
-        [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
+        [InlineKeyboardButton(text="🤖 Собрать уход с Романом", callback_data="go_scanner")],
+        [InlineKeyboardButton(text="📝 Забрать протокол Марии", callback_data="want_mariya_box")],
+        [InlineKeyboardButton(text="🤷‍♀️ У меня пока нет ухода", callback_data="no_care")],
     ])
 
 
@@ -113,17 +100,10 @@ def get_subscription_keyboard():
     ])
 
 
-def get_offer_mariya_keyboard():
+def get_protocol_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Написать Марии", url=MARIYA_URL)],
-        [InlineKeyboardButton(text="🤖 Пойти в магазин с Романом Андреевичем", callback_data="back_to_scanner")],
-    ])
-
-
-def get_offer_scratch_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Забрать готовый уход у Марии", url=MARIYA_URL)],
-        [InlineKeyboardButton(text="🤖 Пойти собирать уход с Романом Андреевичем", callback_data="back_to_scanner")],
+        [InlineKeyboardButton(text="📄 Хочу PDF-протокол", url=MARIYA_PROTOCOL_URL)],
+        [InlineKeyboardButton(text="📦 Хочу Индивидуальный Бокс", url=MARIYA_BOX_URL)],
     ])
 
 
@@ -292,6 +272,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     user = db.get_or_create_user(user_id, username)
 
+    # Проверка карантина
     if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
         completed_at = user.get("survey_completed_at")
         if completed_at:
@@ -317,11 +298,21 @@ async def cmd_start(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Не удалось отправить кружок: {e}")
 
-    # Одно сообщение с ссылками и кнопкой старта
-    await message.answer(
-        f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
+    start_text = (
+        "Что умеет этот бот\n"
+        "Я — Роман Андреевич, умный ИИ-аналитик проекта Skin Protokol. Мой создатель, "
+        "эстетист Мария Мирославская, обучила меня переводить составы косметики с "
+        "маркетингового языка на человеческий.\n\n"
+        "Я проверю ваш текущий уход и будущие покупки, найду скрытые угрозы и помогу "
+        "собрать безопасную базу без маркетинговых пустышек.\n\n"
+        "🎁 Даю 2 бесплатные проверки для новых пользователей.\n\n"
         f"Нажимая кнопку, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
-        f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.",
+        f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.\n\n"
+        "Жмите СТАРТ 👇"
+    )
+
+    await message.answer(
+        start_text,
         reply_markup=get_start_keyboard(),
         parse_mode="HTML",
         disable_web_page_preview=True
@@ -337,13 +328,25 @@ async def code_box(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "start_diagnosis")
 async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
-    await state.set_state(Form.waiting_for_name)
-    await callback.message.answer(
-        "Здравствуйте. Я Роман Андреевич, старший аналитик Skin Protokol и ассистент Марии.\n\n"
-        "Моя задача — оценить ваш уход строго индивидуально.\n\n"
-        "Для начала напишите, как к вам обращаться:",
-        reply_markup=get_mode_keyboard()
-    )
+    user_id = callback.from_user.id
+    user_name = db.get_user_name(user_id)
+
+    if user_name:
+        await state.update_data(user_name=user_name, survey_step=0, tags=[])
+        await state.set_state(Form.survey)
+        await callback.message.answer(
+            f"{user_name}, отлично! Давайте обновим данные. Ответьте на 6 быстрых вопросов, "
+            f"чтобы я понял, с чем мы работаем. 👇"
+        )
+        await send_question(callback.message, state)
+    else:
+        await state.set_state(Form.waiting_for_name)
+        await callback.message.answer(
+            "Здравствуйте. Я Роман Андреевич, старший аналитик Skin Protokol и ассистент Марии.\n\n"
+            "Моя задача — оценить ваш уход строго индивидуально.\n\n"
+            "Для начала напишите, как к вам обращаться:",
+            reply_markup=get_mode_keyboard()
+        )
     await callback.answer()
 
 
@@ -360,16 +363,22 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.set_state(Form.survey)
     await state.update_data(survey_step=0, tags=[])
 
-    # Отправляем сообщение и сохраняем его, чтобы потом отредактировать в первый вопрос
-    loading_msg = await message.answer(
+    # Отправляем и удаляем промежуточное сообщение
+    msg = await message.answer(
         f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, "
         f"с чем мы работаем. 👇"
     )
-    await send_question(message, state, edit_msg=loading_msg)
+    await asyncio.sleep(1.5)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+    await send_question(message, state)
 
 
 # ================== АНКЕТА ==================
-async def send_question(message: types.Message, state: FSMContext, edit_msg: types.Message = None):
+async def send_question(message: types.Message, state: FSMContext):
     data = await state.get_data()
     step = data.get("survey_step", 0)
 
@@ -388,15 +397,10 @@ async def send_question(message: types.Message, state: FSMContext, edit_msg: typ
     if step > 0:
         buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_{step}")])
 
-    markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-    if edit_msg:
-        try:
-            await edit_msg.edit_text(q["text"], reply_markup=markup)
-        except Exception:
-            await message.answer(q["text"], reply_markup=markup)
-    else:
-        await message.answer(q["text"], reply_markup=markup)
+    await message.answer(
+        q["text"],
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
 
 
 @dp.callback_query(F.data.regexp(r"^back_\d+$"))
@@ -546,6 +550,10 @@ async def finish_survey(message: types.Message, state: FSMContext):
     else:
         logger.info(f"👑 Безлимит: карантин НЕ активирован для user_id={user_id}")
 
+    # 1. Сообщение о завершении
+    await message.answer("📊 Диагностика завершена.")
+
+    # 2. Запрос к нейронке
     loading_msg = await message.answer("🔬 Анализирую ваши ответы...")
 
     try:
@@ -560,11 +568,12 @@ async def finish_survey(message: types.Message, state: FSMContext):
         logger.error(f"Не удалось отредактировать сообщение: {e}")
         await message.answer(diagnosis)
 
+    # 3. Развилка
     await message.answer(
-        "Диагностика завершена. Теперь нам нужно выстроить безопасный физиологичный уход. "
-        "Вы можете собрать его самостоятельно, проверяя каждое средство вместе со мной, "
-        "или сразу забрать готовую схему от Марии. Если у вас сейчас вообще нет ухода — "
-        "мы выстроим его с чистого листа.",
+        "Теперь наша задача — выстроить безопасный физиологичный уход.\n\n"
+        "Вы можете собрать САМОСТОЯТЕЛЬНО , проверяя каждое средство вместе со мной, "
+        "или сразу ЗАБРАТЬ ГОТОВЫЙ ПРОТОКОЛ от Марии.\n\n"
+        "Если у вас сейчас вообще НЕТ КОСМЕТИКИ — мы выстроим всё с чистого листа.",
         reply_markup=get_path_keyboard()
     )
 
@@ -633,18 +642,22 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
 # ================== ТРИГГЕР ПРОДАЖ ==================
 @dp.message(F.text == "👑 Готовый уход от Марии")
 async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
-    await message.answer(
-        "Отличное решение. Делегировать подбор ухода специалисту — это самый быстрый путь "
-        "к здоровой коже. Зачем тратить время на разбор составов и тестирование косметики "
-        "вслепую, если можно сразу получить гарантированный результат? Мария берет "
-        "ответственность за вашу кожу на себя. Выберите удобный формат работы:\n\n"
-        "▫️ Digital-протокол (4 900 ₽) — уход в формате подробного PDF-руководства. "
-        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку "
-        "каждого средства и распишет понятную инструкцию.\n\n"
-        "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный формат ухода «под ключ». "
-        "Эстетичная коробка с полноразмерными средствами + ведение от Марии.",
-        reply_markup=get_offer_mariya_keyboard()
+    text = (
+        "▫️ <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного PDF-руководства. "
+        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку каждого "
+        "средства и распишет понятную инструкцию (что и как наносить утром и вечером). Вы покупаете "
+        "всё сами по готовому списку. Этот файл останется с вами как надежная база: Мария добавит "
+        "позиции на перспективу, чтобы вы всегда знали, какими средствами дополнить и усилить свой "
+        "протокол.\n\n"
+        "▫️ <b>Индивидуальный Бокс (от 9 000 ₽)</b> — премиальный формат ухода «под ключ». "
+        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
+        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
+        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение от "
+        "Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
+        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
+        "коже по протоколу."
     )
+    await message.answer(text, reply_markup=get_protocol_keyboard(), parse_mode="HTML")
 
     user = db.get_or_create_user(message.from_user.id)
     await _resolve_user_name(message, state, user)
@@ -668,36 +681,27 @@ async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ШАГ 6 ==================
-@dp.callback_query(F.data == "want_mariya_box")
-async def want_mariya_box(callback: types.CallbackQuery, state: FSMContext):
+# ================== ШАГ 6 / 7 (Мария / Нет ухода) ==================
+@dp.callback_query(F.data.in_(["want_mariya_box", "no_care"]))
+async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
 
-    await callback.message.answer(
-        "Отличное решение. Мария берет ответственность за вашу кожу на себя.\n\n"
-        "▫️ Digital-протокол (4 900 ₽) — подробное PDF-руководство: подбор косметики "
-        "под ваш бюджет, прямые ссылки на покупку и инструкция по нанесению.\n\n"
-        "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный уход «под ключ»: "
-        "эстетичная коробка с полноразмерными средствами + постоянное ведение от Марии.",
-        reply_markup=get_offer_mariya_keyboard()
+    text = (
+        "▫️ <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного PDF-руководства. "
+        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку каждого "
+        "средства и распишет понятную инструкцию (что и как наносить утром и вечером). Вы покупаете "
+        "всё сами по готовому списку. Этот файл останется с вами как надежная база: Мария добавит "
+        "позиции на перспективу, чтобы вы всегда знали, какими средствами дополнить и усилить свой "
+        "протокол.\n\n"
+        "▫️ <b>Индивидуальный Бокс (от 9 000 ₽)</b> — премиальный формат ухода «под ключ». "
+        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
+        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
+        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение от "
+        "Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
+        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
+        "коже по протоколу."
     )
-    await callback.answer()
-
-
-# ================== ШАГ 7 ==================
-@dp.callback_query(F.data == "no_care")
-async def no_care_branch(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-
-    await callback.message.answer(
-        "Это идеальная ситуация! Выстроить грамотный фундамент с чистого листа гораздо "
-        "проще и дешевле, чем восстанавливать кожу после агрессивной косметики:\n\n"
-        "▫️ Digital-протокол (4 900 ₽) — подробное PDF-руководство: подбор косметики "
-        "под ваш бюджет, прямые ссылки на покупку и инструкция по нанесению.\n\n"
-        "▫️ Индивидуальный Бокс (от 9 000 ₽) — премиальный уход «под ключ»: "
-        "эстетичная коробка с полноразмерными средствами + постоянное ведение от Марии.",
-        reply_markup=get_offer_scratch_keyboard()
-    )
+    await callback.message.answer(text, reply_markup=get_protocol_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -713,81 +717,20 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================== ПЭЙВОЛ (СРАЗУ ТАРИФЫ) ==================
+# ================== ПЭЙВОЛ (БЕЗ ОФЕРТЫ) ==================
 PAYWALL_TEXT = (
-    "Выберите формат работы с Романом Андреевичем:\n\n"
+    "Это была ваша последняя бесплатная проверка.\n\n"
+    "Выберите формат дальнейшей работы с Романом Андреевичем:\n\n"
     "💳 <b>Аудит (30 дней) — 1000 ₽</b>\n"
-    "Полная ревизия вашей косметички.\n"
+    "Полная ревизия вашего ухода.\n"
     "• Безлимитный разбор составов на месяц.\n"
     "• Поиск скрытых угроз и маркетинговых пустышек.\n"
-    "• Защита от покупок комедогенной косметики.\n\n"
+    "• Защита от покупок агрессивной и комедогенной косметики.\n\n"
     "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
     "Сопровождение на полный цикл обновления кожи.\n"
     "• 3 месяца безлимитного разбора составов.\n"
-    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.\n\n"
-    "👇 Оформите подписку, выбрав тариф ниже:"
+    "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние."
 )
-
-
-# ================== СОГЛАСИЯ ПЕРЕД ОПЛАТОЙ ==================
-@dp.callback_query(F.data == "pay_audit_30")
-async def pay_audit_30(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(pending_tariff="audit")
-    await callback.message.answer(
-        f"Для оформления тарифа «Аудит» необходимо принять условия.\n\n"
-        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
-        reply_markup=get_accept_offer_keyboard("pay"),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "pay_restore_90")
-async def pay_restore_90(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(pending_tariff="restore")
-    await callback.message.answer(
-        f"Для оформления тарифа «Восстановление» необходимо принять условия.\n\n"
-        f"Ознакомьтесь с <a href='{OFFER_URL}'>Публичной офертой</a>.",
-        reply_markup=get_accept_offer_keyboard("pay"),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "accept_offer_pay")
-async def handle_offer_pay(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        f"Теперь, пожалуйста, ознакомьтесь с <a href='{CONSENT_URL}'>Согласием на обработку персональных данных</a>.",
-        reply_markup=get_accept_consent_keyboard("pay"),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "accept_consent_pay")
-async def handle_consent_pay(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    tariff = data.get("pending_tariff", "audit")
-
-    if tariff == "restore":
-        text = (
-            "✅ Спасибо! Согласия получены.\n\n"
-            "Перенаправляю на оплату тарифа «Восстановление (90 дней) — 2500 ₽».\n\n"
-            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
-        )
-    else:
-        text = (
-            "✅ Спасибо! Согласия получены.\n\n"
-            "Перенаправляю на оплату тарифа «Аудит (30 дней) — 1000 ₽».\n\n"
-            "🔧 Оплата будет подключена на следующем этапе (Продамус)."
-        )
-
-    await callback.message.edit_text(text)
-    await state.update_data(pending_tariff=None)
-    await callback.answer()
 
 
 # ================== ФОТО СОСТАВА ==================
@@ -877,8 +820,10 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
             else:
                 db.schedule_retention_notifications(user_id)
                 await message.answer(
-                    "Это была ваша последняя бесплатная проверка.",
-                    reply_markup=get_subscription_keyboard()
+                    PAYWALL_TEXT,
+                    reply_markup=get_subscription_keyboard(),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
                 )
         else:
             await loading_msg.edit_text(verdict)
@@ -971,8 +916,10 @@ async def process_composition(message: types.Message, state: FSMContext):
             else:
                 db.schedule_retention_notifications(user_id)
                 await message.answer(
-                    "Это была ваша последняя бесплатная проверка.",
-                    reply_markup=get_subscription_keyboard()
+                    PAYWALL_TEXT,
+                    reply_markup=get_subscription_keyboard(),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
                 )
         else:
             await loading_msg.edit_text(verdict)
@@ -988,6 +935,23 @@ async def process_composition(message: types.Message, state: FSMContext):
         await loading_msg.edit_text(
             "❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан."
         )
+
+
+# ================== ОПЛАТА ==================
+@dp.callback_query(F.data == "pay_audit_30")
+async def pay_audit_30(callback: types.CallbackQuery):
+    await callback.message.answer(
+        "🔧 Переход к оплате тарифа «Аудит» (1000 ₽) будет доступен здесь (Продамус)."
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "pay_restore_90")
+async def pay_restore_90(callback: types.CallbackQuery):
+    await callback.message.answer(
+        "🔧 Переход к оплате тарифа «Восстановление» (2500 ₽) будет доступен здесь (Продамус)."
+    )
+    await callback.answer()
 
 
 # ================== ПОДПИСКА ==================
