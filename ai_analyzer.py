@@ -1,449 +1,990 @@
 import os
+import asyncio
 import logging
-from openai import AsyncOpenAI
+import urllib.parse
+from datetime import datetime, timedelta
+
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import (
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
 from dotenv import load_dotenv
 
-load_dotenv()
-
-logger = logging.getLogger(__name__)
-
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    base_url="https://polza.ai/api/v1"
+import database as db
+from ai_analyzer import (
+    analyze_composition,
+    analyze_composition_photo,
+    generate_diagnosis
 )
 
-# ================== НАСТРОЙКИ МОДЕЛИ ==================
-MODEL_NAME = "anthropic/claude-sonnet-4.5"
-TEMPERATURE_ANALYSIS = 0.3
-TEMPERATURE_DIAGNOSIS = 0.4
-MAX_TOKENS = 500
+# ================== ЗАГРУЗКА ПЕРЕМЕННЫХ ==================
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
+MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
+
+UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
+
+CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
+
+OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
+CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
+
+MARIYA_USERNAME = "miroslavskayaboks"
+TEXT_PROTOCOL = "Привет! Я хочу Персональный PDF-протокол. Меня зовут: "
+TEXT_BOX = "Привет! Я хочу Индивидуальный Бокс. Меня зовут: "
+
+MARIYA_PROTOCOL_URL = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(TEXT_PROTOCOL)}"
+MARIYA_BOX_URL = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(TEXT_BOX)}"
+
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN не найден в .env!")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+bot = Bot(token=BOT_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
+db.init_db()
+
+ANALYZABLE_STATUSES = {"bad", "hidden_threat", "conditional", "good", "neutral", "hydrophilic"}
 
 
-# ================== ЧАСТЬ 1: БАЗОВЫЕ НАСТРОЙКИ ==================
-BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
-Ты — Роман Андреевич, строгий премиальный химик-технолог и косметический аудитор. Общайся на уважительное «Вы». Твой образ — это надежная стена и абсолютная безопасность для клиентки. Транслируй мужскую профессиональную опеку: ты забираешь у нее тревогу и принимаешь решения за нее («Вы можете быть спокойны», «Я беру этот вопрос на себя»). Будь строг к производителям косметики, но максимально бережен к самой женщине.
-ЗАПРЕЩЕНО: заискивание, приветствия («Добрый день», «Здравствуйте»), сюсюканье и любой сленг («баночка», «косметос», «супер»).
-
-ПРОФЕССИОНАЛЬНЫЙ СЛОВАРЬ:
-КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать бытовые формулировки вроде «проблемы с кожей» или поэтические метафоры. Заменяй их на профессиональные термины: гидролипидная мантия, эпидермис, компенсаторная реакция, местный иммунитет, липидный барьер.
-
-КРАСНАЯ ЛИНИЯ (МЕДИЦИНА И ПРОДАЖИ):
-1. Ты НИКОГДА не лечишь СПКЯ, акне 3-4 степени, розацеа, дерматиты или гормональные нарушения. При наличии медицинских диагнозов отвечай: «Я анализирую химические составы косметики, а заболевания лечит врач. Моя задача — оградить вашу кожу от внешнего стресса».
-2. Ты НИКОГДА не советуешь конкретные бренды. Ты только оцениваешь то, что прислала клиентка. Готовые схемы собирает исключительно Мария.
-
-ЖЕСТКИЕ ПРАВИЛА ЛОГИКИ И ФАКТЧЕКИНГ:
-1. СТРОГИЙ ПОРЯДОК INCI: Читай состав строго слева направо. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать, что актив стоит после консерванта, если в присланном тексте он написан до него. Не ври и не выдумывай порядок.
-2. ФАКТЧЕКИНГ: Оценивай ТОЛЬКО те компоненты, которые физически есть в тексте. Используй встроенную базу INCI: если видишь скрытые сульфаты или аллергены, бракуй их с научным объяснением.
-3. Жирные спирты (Cetearyl Alcohol, Cetyl Alcohol, Stearyl Alcohol) — это безопасные физиологичные эмоленты. Запрещено называть их агрессивными.
-4. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать слово «тег» или «теги» в ответе клиенту. Вплетай состояния кожи в текст естественно (например, «при вашей сухости»).
-
-ФОРМАТ ОТВЕТА (Пиши ёмко, строго до 400 символов, НИКОГДА не обрывай мысль):
-Ответ состоит СТРОГО ИЗ ОДНОГО АБЗАЦА (максимум 3-4 предложения).
-Структура: [Имя клиента, + Точный ШАБЛОН СТАТУСА из Матрицы + 2-3 коротких предложения с жестким химическим разбором компонентов и объяснением вердикта].
-КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать любые вступительные фразы, оценивать потребности кожи или делать лирические отступления. Сразу переходи к статусу и разбору химии.
-"""
+class Form(StatesGroup):
+    waiting_for_name = State()
+    survey = State()
+    waiting_for_medicine = State()
+    waiting_for_allergy = State()
+    waiting_for_composition = State()
 
 
-# ================== ЧАСТЬ 2: МАТРИЦА ОЧИЩЕНИЯ ==================
-MATRIX_WASH = """АБСОЛЮТНОЕ ВЕТО: Проверяется до оценки базы. При совпадении тегов [Беременность] с ретинолом, либо [Аллергия] с аллергеном, НЕМЕДЛЕННО выдавай 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
-
-ВЫБЕРИ СТРОГО ОДИН СТАТУС И ШАБЛОН ДЛЯ ОТВЕТА:
-🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ
-- Жесткие ПАВы: SLS, SLES, ALS, Potassium Hydroxide. Травматичные скрабы.
-- Шаблон: «🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.»
-
-🔵 ИСКЛЮЧЕНИЕ
-- Гидрофильное масло. ЕСЛИ на 1-м месте Масла/Эмоленты + эмульгаторы (PEG, Polysorbate, Sorbeth). Наличие ПЭГ здесь — технологическая норма для растворения макияжа и себума. (ВАЖНО: если AQUA на первом месте — статус НЕ применять).
-- Шаблон: «🔵 ИСКЛЮЧЕНИЕ. Гидрофильное масло. Обязательно тщательно смывайте его пенкой вторым этапом, чтобы не забить поры.»
-
-🟢 ОДОБРЯЮ
-- На 1-м месте AQUA + мягкие ПАВы (Coco-Glucoside, Cocamidopropyl Betaine, Sodium Cocoyl Isethionate). Наличие PEG в водной базе безопасно.
-- Шаблон: «🟢 ОДОБРЯЮ.»
-"""
+# ================== ПРОВЕРКА ЛИМИТОВ ==================
+def check_user_limits(user_id: int, user: dict) -> bool:
+    is_unlimited = (user_id in UNLIMITED_IDS)
+    has_sub = db.has_active_subscription(user_id)
+    has_checks = user.get("free_checks", 0) > 0
+    return is_unlimited or has_sub or has_checks
 
 
-# ================== ЧАСТЬ 3: МАТРИЦА УХОДА ==================
-MATRIX_CARE = """АБСОЛЮТНОЕ ВЕТО: Проверяется до оценки базы. При совпадении тегов [Беременность] с ретинолом/BHA, либо [Аллергия] с аллергеном, НЕМЕДЛЕННО выдавай 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
-
-ВЫБЕРИ СТРОГО ОДИН СТАТУС (КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО ПРИСВАИВАТЬ ОДИН СТАТУС ЗА ПРИЧИНУ ОТ ДРУГОГО):
-
-🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ
-- ЕСЛИ: В составе простые спирты (Alcohol Denat, Ethanol) ИЛИ комедогенные базы (Mineral Oil, Petrolatum, Isopropyl Myristate, Talc).
-- Шаблон: «🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.»
-
-🟠 ОТКЛОНЯЕМ (Скрытая угроза)
-- ЕСЛИ (Правило Wash-out): есть церамиды/холестерол + дешевый ПЭГ-эмульгатор (PEG-100 Stearate, Ceteareth-20, Polysorbate). ОБЯЗАТЕЛЬНО жестко опиши эффект wash-out (вымывание липидов).
-- Шаблон: «🟠 ОТКЛОНЯЕМ (Скрытая угроза).»
-
-🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ
-- ЕСЛИ: В составе активы/эфирные масла при нарушенном барьере или реактивности, ИЛИ AHA/PHA кислоты.
-- Шаблон: «🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ.»
-
-⚪️ ПУСТЫШКА (Маркетинговая пыль)
-- ЕСЛИ (Правило 1%): Активные компоненты стоят ПОСЛЕ консервантов (Phenoxyethanol, Ethylhexylglycerin) ИЛИ Parfum. ОБЯЗАТЕЛЬНО объясни, что концентрация ниже 1% — это маркетинговая пыль. (Запрещено выдавать оранжевый или красный статус за правило 1%!).
-- Шаблон: «⚪️ ПУСТЫШКА.»
-
-🟢 ОДОБРЯЮ
-- ЕСЛИ: Рабочие активы стоят ДО консервантов, грамотная физиологичная база без нарушений выше.
-- Шаблон: «🟢 ОДОБРЯЮ.»
-"""
+# ================== КЛАВИАТУРЫ ==================
+def get_mode_keyboard():
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="🤖 Собрать уход с Романом")],
+        [KeyboardButton(text="📝 Забрать уход от Марии")]
+    ], resize_keyboard=True)
 
 
-# ================== ЧАСТЬ 4: БЛОК ПРИМЕРОВ ==================
-EXAMPLES_BLOCK = """ПРИМЕР 1 (Вводные: Имя - Анна, Теги - [Беременность, Пигментация]):
-Анна, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе присутствует Retinol, который категорически противопоказан во время беременности. Пигментацию будем корректировать безопасными компонентами.
-
-ПРИМЕР 2 (Вводные: Имя - Мария, Теги - [Сломан барьер, Сухость]):
-Мария, ⚪️ ПУСТЫШКА. База безопасна, однако Ceramide NP и Hyaluronic Acid стоят в списке INCI после Phenoxyethanol. Их концентрация ниже 1%, они служат лишь маркетинговой приманкой и барьер не восстановят. Вы можете быть спокойны, мы подберем рабочий аналог.
-
-ПРИМЕР 3 (Вводные: Имя - Елена, Теги - [Реактивность]):
-Елена, 🟠 ОТКЛОНЯЕМ (Скрытая угроза). Заявленные структурные липиды работают в паре с дешевым эмульгатором PEG-100 Stearate. Это классический эффект wash-out: при умывании средство вымоет активы вместе с вашими собственными липидами, усилив реактивность кожи.
-
-ПРИМЕР 4 (Вводные: Имя - Ольга, Теги - [Нормально]):
-Ольга, 🟢 ОДОБРЯЮ. Грамотная база. Рабочие активы (Squalane, Panthenol) стоят до консервантов. Средство обеспечит качественное увлажнение и поддержку барьера без риска комедогенности.
-
-ПРИМЕР 5 (Вводные: Имя - Светлана, Теги - [Компенсаторная жирность, Проблемная], Режим - Очищение):
-Светлана, 🔵 ИСКЛЮЧЕНИЕ. Гидрофильное масло. Обязательно тщательно смывайте его пенкой вторым этапом, чтобы не забить поры. Наличие ПЭГ-эмульгаторов здесь является технологической нормой для растворения макияжа.
-"""
+def get_next_category_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧴 Несмываемое (всё, что остается на коже)", callback_data="next_care")],
+        [InlineKeyboardButton(text="🫧 Смываемое (всё, что смывается водой)", callback_data="next_wash")],
+    ])
 
 
-# ================== МАППИНГ ТЕГОВ (ENG → RU) ==================
-TAG_MAP = {
-    "problem": "Проблемная",
-    "barrier_broken": "Сломан барьер",
-    "fat_compensatory": "Компенсаторная жирность",
-    "fat": "Жирность",
-    "dry": "Сухость",
-    "pigment": "Пигментация",
-    "age": "Возрастные изменения",
-    "reactive": "Реактивность",
-    "medicine": "Медицина",
-    "pregnancy": "Беременность",
-    "normal": "Нормально",
+def get_start_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="▶️ СТАРТ", callback_data="start_diagnosis")]
+    ])
+
+
+def get_path_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 Собрать уход с Романом", callback_data="go_scanner")],
+        [InlineKeyboardButton(text="📝 Забрать уход от Марии", callback_data="want_mariya_box")],
+        [InlineKeyboardButton(text="🤷‍♀️ У меня пока нет ухода", callback_data="no_care")],
+    ])
+
+
+def get_protocol_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📄 Хочу PDF-протокол", url=MARIYA_PROTOCOL_URL)],
+        [InlineKeyboardButton(text="📦 Хочу Индивидуальный Бокс", url=MARIYA_BOX_URL)],
+    ])
+
+
+# ================== ПЭЙВОЛ ==================
+async def send_paywall(message: types.Message):
+    await message.answer(
+        "У вас нет оплаченных тарифов.\n\n"
+        "Предлагаем выбрать один из двух тарифов ниже:"
+    )
+    await message.answer(
+        "Полная ревизия вашего ухода.\n"
+        "• Безлимитный разбор составов на месяц.\n"
+        "• Поиск скрытых угроз и маркетинговых пустышек.\n"
+        "• Защита от покупок агрессивной и комедогенной косметики.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")]
+        ])
+    )
+    await message.answer(
+        "Сопровождение на полный цикл обновления кожи.\n"
+        "• 3 месяца безлимитного разбора составов.\n"
+        "• 2 дополнительных перезаполнения анкеты. За 3 месяца кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Восстановление (90 дней) — 2500 ₽ 🔥", callback_data="pay_restore_90")]
+        ])
+    )
+
+
+SURVEY_QUESTIONS = [
+    {
+        "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
+        "options": [
+            ("Акне / активные воспаления", "problem"),
+            ("Закрытые комедоны / бугорки", "problem"),
+            ("Сильная жирность днём", "fat"),
+            ("Чёрные точки / поры", "fat"),
+            ("Сухость / стянутость", "dry"),
+            ("Шелушения", "dry"),
+            ("Пигментация / постакне", "pigment"),
+            ("Морщины / потеря тонуса", "age"),
+            ("Покраснения / купероз", "reactive"),
+            ("Ничего не беспокоит", "normal"),
+        ],
+        "multi": True,
+    },
+    {
+        "text": "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
+        "options": [
+            ("Комфортно, не стягивает", None),
+            ("Терпимо, хочется нанести крем", None),
+            ("Сильно стягивает («пергамент»)", "barrier_broken"),
+            ("Сразу блестит от жирности", None),
+        ],
+        "multi": False,
+    },
+    {
+        "text": "Вопрос 3. Как ведёт себя ваша кожа к середине дня?",
+        "options": [
+            ("Нормально (без сухости и блеска)", None),
+            ("Блестит только Т-зона", None),
+            ("Сильно блестит всё лицо", "fat_compensatory"),
+            ("Сохнет / шелушится", "barrier_broken"),
+        ],
+        "multi": False,
+    },
+    {
+        "text": "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям (холод, жара, новая косметика)?",
+        "options": [
+            ("Спокойная (редко краснеет)", None),
+            ("Слегка чувствительная", None),
+            ("Реактивная (горит, краснеет)", "reactive"),
+        ],
+        "multi": False,
+    },
+    {
+        "text": "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько)",
+        "options": [
+            ("Аптечные мази (Скинорен и др.)", "reactive"),
+            ("Гормональные нарушения", "medicine"),
+            ("Кожные заболевания (розацеа и др.)", "medicine"),
+            ("Беременность / лактация", "pregnancy"),
+            ("Другое (напишу текстом)", "medicine_other"),
+            ("Ничего из перечисленного", None),
+        ],
+        "multi": True,
+    },
+    {
+        "text": "Вопрос 6. И последнее — есть ли у вас известная аллергия на конкретные косметические компоненты?\n\n"
+                "(Часто реакцию дают витамин С, ниацинамид, мёд, муцин улитки, эфирные масла, растительные экстракты или металлы — например, никель).",
+        "options": [
+            ("Нет, аллергии нет", "no_allergy"),
+            ("Да, есть (напишу текстом)", "has_allergy"),
+        ],
+        "multi": False,
+    },
+]
+
+
+RETENTION_TEXTS = {
+    "1m": "Проверка завершена — доступ к полному алгоритму пока не активирован. Если передумаете, я на связи.",
+    "2h": "Вы остановились на этапе активации доступа. Ваша анкета сохранена. Чтобы я мог проанализировать вашу косметичку и выстроить протокол восстановления барьера, завершите оформление. Я готов приступить к работе.",
+    "24h": "Прошли сутки с момента нашей паузы. Напоминаю, что каждый день использования неподходящей косметики усугубляет состояние гидролипидной мантии. Давайте остановим этот процесс и проведем аудит прямо сейчас. Открываем доступ?",
+    "48h": "Я закрываю ваш незаконченный сеанс в системе. Если вы решите навести порядок в домашнем уходе и перестать тратить деньги на агрессивные средства, возвращайтесь. Бот будет готов к работе, когда вы примете решение.",
+    "7d": "Прошла неделя с момента вашего визита. За это время вы нанесли свой привычный уход минимум 14 раз. Если в вашей косметичке есть скрытые аллергены или разрушающие барьер активы, за эту неделю вы усугубили дефицит липидов. Готовы провести химический аудит?",
+    "30d": "Прошел ровно месяц. В дерматологии 28–35 дней — это полный цикл обновления эпидермиса. Если вы не меняли стратегию ухода, состояние кожи осталось прежним или ухудшилось. Если вы устали тестировать косметику вслепую, доступ к системе открыт.",
 }
 
 
-def _translate_tags(tags: list) -> str:
-    """Переводит английские теги в русские для промпта."""
-    if not tags:
-        return "нет данных"
-    result = []
-    for t in tags:
-        if t.startswith("allergy_"):
-            name = t[len("allergy_"):]
-            result.append(f"аллергия на {name}")
-        elif t in TAG_MAP:
-            result.append(TAG_MAP[t])
-        else:
-            result.append(t)
-    return ", ".join(result)
-
-
-# ================== СБОРКА SYSTEM PROMPT ==================
-def _get_matrix(category: str) -> str:
-    if category == "cleansing":
-        return MATRIX_WASH
-    return MATRIX_CARE
-
-
-def _build_system_prompt(category: str) -> str:
-    """Собирает полный системный промпт: БАЗА + МАТРИЦА + ПРИМЕРЫ."""
-    return (
-        "# СИСТЕМНЫЙ ПРОМПТ ДЛЯ LLM (РОМАН АНДРЕЕВИЧ)\n\n"
-        "## ЧАСТЬ 1: БАЗОВЫЕ НАСТРОЙКИ\n"
-        + BASE_PROMPT + "\n\n"
-        + "## ЧАСТЬ 2: МАТРИЦА\n"
-        + _get_matrix(category) + "\n\n"
-        + "## ЧАСТЬ 3: БЛОК ПРИМЕРОВ\n"
-        + EXAMPLES_BLOCK
-    )
-
-
-# ================== ОПРЕДЕЛЕНИЕ СТАТУСА ==================
-def _get_status(result: str) -> str:
-    # ⚪ проверяется БЕЗ Variation Selector — покрывает оба варианта эмодзи
-    if "🔴" in result:
-        return "bad"
-    elif "🟠" in result:
-        return "hidden_threat"
-    elif "🟡" in result:
-        return "conditional"
-    elif "🟢" in result:
-        return "good"
-    elif "⚪" in result:
-        return "neutral"
-    elif "🔵" in result:
-        return "hydrophilic"
-    elif "⚠️" in result or "НЕДОСТАТОЧНО ДАННЫХ" in result:
-        return "error"
-    else:
-        return "unknown"
-
-
-# ================== ОБРЕЗКА + ЗАЩИТА ОТ ЭХА ==================
-def _safe_trim(text: str, limit: int = 450) -> str:
-    """Обрезка до 450 символов (запас сверх 400) + защита от эха промпта."""
-    echo_markers = [
-        "РОЛЬ И ТОНАЛЬНОСТЬ", "ЧАСТЬ 1", "ЧАСТЬ 2", "ЧАСТЬ 3", "ЧАСТЬ 4",
-        "АБСОЛЮТНОЕ ВЕТО", "ВЫБЕРИ СТРОГО ОДИН СТАТУС", "ПРИМЕР 1",
-        "ПРОФЕССИОНАЛЬНЫЙ СЛОВАРЬ", "ЖЕСТКИЕ ПРАВИЛА", "ЖЕСТКИЙ ЛИМИТ",
-        "СИСТЕМНЫЙ ПРОМПТ", "ФОРМАТ ОТВЕТА"
-    ]
-    if any(marker in text[:450] for marker in echo_markers):
-        for emoji in ["🔴", "🟠", "🟡", "🟢", "⚪", "🔵", "⚠️"]:
-            idx = text.find(emoji)
-            if idx != -1:
-                pre = text[:idx]
-                dot = pre.rfind(".")
-                if dot != -1 and dot > 50:
-                    text = text[dot + 1:].strip()
-                else:
-                    text = text[idx:]
-                break
-        else:
-            return "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Модель не выдала вердикт. Попробуйте ещё раз."
-
-    if len(text) <= limit:
-        return text
-
-    cut = text[:limit].rfind(".")
-    if cut > 200:
-        return text[:cut + 1]
-
-    cut = text[:limit].rfind(" ")
-    if cut > 200:
-        return text[:cut]
-
-    return text[:limit]
-
-
-# ================== ЯДРО: ВЫЗОВ МОДЕЛИ (system + user) ==================
-async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) -> str:
-    """Один вызов LLM. Разделяем на роль system (правила) и user (данные)."""
+async def _send_retention_notification(user_id: int, notif_type: str):
+    text = RETENTION_TEXTS.get(notif_type)
+    if not text:
+        return
     try:
-        response = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=temperature,
-            max_tokens=MAX_TOKENS,
+        await bot.send_message(
+            user_id,
+            f"🤖 Роман Андреевич: {text}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
+                [InlineKeyboardButton(text="💳 Восстановление (90 дней) — 2500 ₽ 🔥", callback_data="pay_restore_90")],
+            ]),
+            parse_mode="HTML"
         )
-
-        if not response or not response.choices:
-            logger.error("Модель вернула пустой ответ")
-            return ""
-
-        usage = response.usage
-        if usage:
-            cached_tokens = 0
-            try:
-                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
-                elif hasattr(usage, "cached_tokens"):
-                    cached_tokens = usage.cached_tokens or 0
-            except Exception:
-                cached_tokens = 0
-
-            logger.info(
-                f"📊 Токены: вход={usage.prompt_tokens}, "
-                f"из кэша={cached_tokens}, "
-                f"выход={usage.completion_tokens}"
-            )
-
-        content = response.choices[0].message.content
-        if not content:
-            logger.error("Модель вернула пустой текст")
-            return ""
-
-        return content
-
+        logger.info(f"📨 Retention '{notif_type}' → user_id={user_id}")
     except Exception as e:
-        logger.error(f"Ошибка вызова LLM: {e}")
-        return ""
+        logger.warning(f"Не удалось отправить retention {notif_type} юзеру {user_id}: {e}")
 
 
-async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
-    result_text = await _call_llm(system_prompt, user_prompt, TEMPERATURE_ANALYSIS)
-
-    if result_text:
-        result_text = _safe_trim(result_text, 450)
-        status = _get_status(result_text)
-        if status not in ["error", "unknown"]:
-            return {"verdict": result_text, "status": status}
-
-    logger.warning("Ретрай запроса к LLM (temperature=0)")
-    retry_text = await _call_llm(system_prompt, user_prompt, 0.0)
-
-    if retry_text:
-        retry_text = _safe_trim(retry_text, 450)
-        status = _get_status(retry_text)
-        return {"verdict": retry_text, "status": status}
-
-    return {
-        "verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Не удалось обработать состав. Попробуйте ещё раз — лимит не списан.",
-        "status": "error"
-    }
+async def retention_worker():
+    logger.info("⏰ Retention-воркер запущен")
+    while True:
+        try:
+            due = db.get_due_notifications()
+            for n in due:
+                await _send_retention_notification(n["user_id"], n["type"])
+                db.mark_notification_sent(n["id"])
+        except Exception as e:
+            logger.error(f"Ошибка в retention-воркере: {e}")
+        await asyncio.sleep(30)
 
 
-# ================== АНАЛИЗ ТЕКСТОВОГО СОСТАВА ==================
-async def analyze_composition(composition: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
-    tags_str = _translate_tags(tags)
+async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
+    data = await state.get_data()
+    name = data.get("user_name")
 
-    if len(composition) > 2000:
-        composition = composition[:2000] + "..."
+    if not name:
+        try:
+            name = db.get_user_name(message.from_user.id)
+        except Exception:
+            name = None
 
-    system_prompt = _build_system_prompt(category)
+    if not name:
+        name = message.from_user.first_name or "Клиент"
 
-    user_prompt = (
-        f"Имя клиента: {user_name or 'Клиент'}\n"
-        f"Состояние кожи: {tags_str}\n"
-        f"Категория средства: {'Очищение / Демакияж' if category == 'cleansing' else 'Несмываемый уход'}\n"
-        f"Состав (INCI): {composition}\n\n"
-        f"ВАЖНО: Если присланный текст НЕ является списком ингредиентов косметики (INCI) — "
-        f"это бессвязный набор слов, вопрос, жалоба, приветствие или что-то другое — "
-        f"верни СТРОГО одну строку: ⚠️ НЕДОСТАТОЧНО ДАННЫХ. И больше ничего."
-    )
+    if data.get("user_name") != name:
+        await state.update_data(user_name=name)
 
-    return await _call_llm_with_retry(system_prompt, user_prompt)
+    return name
 
 
-# ================== АНАЛИЗ ФОТО СОСТАВА ==================
-async def analyze_composition_photo(photo_url: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
-    tags_str = _translate_tags(tags)
+@dp.message(CommandStart())
+async def cmd_start(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.username
+    user = db.get_or_create_user(user_id, username)
 
-    system_prompt = _build_system_prompt(category)
+    if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
+        completed_at = user.get("survey_completed_at")
+        if completed_at:
+            try:
+                completed_date = datetime.fromisoformat(completed_at)
+                days_passed = (datetime.now() - completed_date).days
 
-    user_prompt = (
-        f"Имя клиента: {user_name or 'Клиент'}\n"
-        f"Состояние кожи: {tags_str}\n"
-        f"Категория средства: {'Очищение / Демакияж' if category == 'cleansing' else 'Несмываемый уход'}\n"
-        f"На фото — состав (INCI). Прочитай и проанализируй.\n\n"
-        f"⚠️ КРИТИЧЕСКИ ВАЖНО:\n"
-        f"- КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО додумывать или угадывать невидимые компоненты.\n"
-        f"- Если текст INCI размыт, обрезан, уходит за изгиб флакона или закрыт бликом, "
-        f"и ты не можешь прочитать список уверенно до самого конца (до консервантов) — "
-        f"НЕ ВЫДУМЫВАЙ СОСТАВ. Сразу прерывай анализ.\n"
-        f"- Если на фото НЕТ списка ингредиентов (лицо, еда, пейзаж, размытое пятно и т.п.) — "
-        f"то же самое.\n\n"
-        f"В обоих случаях верни СТРОГО одну строку и ничего больше:\n"
-        f"⚠️ НЕДОСТАТОЧНО ДАННЫХ. Фото не читается полностью."
-    )
+                if days_passed < 30:
+                    days_left = 30 - days_passed
+                    await message.answer(
+                        f"Ваша диагностическая карта зафиксирована. Сейчас мы работаем с текущим "
+                        f"состоянием вашей кожи, ей нужно время на восстановление. ⏳\n\n"
+                        f"Обновить профиль и пройти диагностику заново можно будет через "
+                        f"*{days_left}* дней.",
+                        parse_mode="Markdown"
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Ошибка карантина: {e}")
 
     try:
-        response = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {"type": "image_url", "image_url": {"url": photo_url}}
-                    ]
-                }
-            ],
-            temperature=TEMPERATURE_ANALYSIS,
-            max_tokens=MAX_TOKENS,
+        await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
+    except Exception as e:
+        logger.error(f"Не удалось отправить кружок: {e}")
+
+    if user.get("survey_done", 0) == 0:
+        await message.answer(
+            f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
+            f"Нажимая кнопку, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
+            f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.",
+            reply_markup=get_start_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
+        return
 
-        if not response or not response.choices:
-            logger.error("Модель вернула пустой ответ (фото)")
-            return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте ещё раз.", "status": "error"}
+    if check_user_limits(user_id, user):
+        await message.answer(
+            "Какое уходовое средство вы хотите проверить?\n\n"
+            "Выберите тип средства 👇",
+            reply_markup=get_next_category_keyboard()
+        )
+        await message.answer(
+            "Также вы можете забрать готовый уход от Марии, нажав на кнопку внизу.",
+            reply_markup=get_mode_keyboard()
+        )
+        await state.set_state(Form.waiting_for_composition)
+    else:
+        await send_paywall(message)
 
-        usage = response.usage
-        if usage:
-            cached_tokens = 0
-            try:
-                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
-                elif hasattr(usage, "cached_tokens"):
-                    cached_tokens = usage.cached_tokens or 0
-            except Exception:
-                cached_tokens = 0
 
-            logger.info(
-                f"📊 [ФОТО] Токены: вход={usage.prompt_tokens}, "
-                f"из кэша={cached_tokens}, "
-                f"выход={usage.completion_tokens}"
+@dp.message(F.text.lower() == "бокс")
+async def code_box(message: types.Message, state: FSMContext):
+    await cmd_start(message, state)
+
+
+@dp.message(F.text == "🤖 Собрать уход с Романом")
+async def gather_care_start(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = db.get_or_create_user(user_id)
+
+    # Проверка на заполненную анкету
+    if user.get("survey_done", 0) == 0:
+        await message.answer(
+            "Для того чтобы я мог качественно проанализировать ваш уход, мне нужно узнать вашу кожу. "
+            "Пожалуйста, пройдите короткую диагностику 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="▶️ Пройти анкету", callback_data="start_diagnosis")]
+            ])
+        )
+        return
+
+    if check_user_limits(user_id, user):
+        await message.answer(
+            "Какое уходовое средство вы хотите проверить?",
+            reply_markup=get_next_category_keyboard()
+        )
+        await state.set_state(Form.waiting_for_composition)
+    else:
+        await send_paywall(message)
+
+
+@dp.message(F.text == "📝 Забрать уход от Марии")
+async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
+    text = (
+        "▫️ <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного PDF-руководства. "
+        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку каждого "
+        "средства и распишет понятную инструкцию (что и как наносить утром и вечером). Вы покупаете "
+        "всё сами по готовому списку. Этот файл останется с вами как надежная база: Мария добавит "
+        "позиции на перспективу, чтобы вы всегда знали, какими средствами дополнить и усилить свой "
+        "протокол.\n\n"
+        "▫️ <b>Индивидуальный Бокс (от 9 000 ₽)</b> — премиальный формат ухода «под ключ». "
+        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
+        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
+        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение от "
+        "Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
+        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
+        "коже по протоколу."
+    )
+    await message.answer(text, reply_markup=get_protocol_keyboard(), parse_mode="HTML")
+
+    current_state = await state.get_state()
+    if current_state != Form.waiting_for_composition:
+        await state.set_state(Form.waiting_for_composition)
+
+
+@dp.callback_query(F.data == "start_diagnosis")
+async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    user_name = db.get_user_name(user_id)
+
+    if user_name:
+        await state.update_data(user_name=user_name, survey_step=0, tags=[])
+        await state.set_state(Form.survey)
+        await callback.message.answer(
+            f"{user_name}, отлично! Давайте обновим данные. Ответьте на 6 быстрых вопросов, "
+            f"чтобы я понял, с чем мы работаем. 👇"
+        )
+        await send_question(callback.message, state)
+    else:
+        await state.set_state(Form.waiting_for_name)
+        await callback.message.answer(
+            "Здравствуйте. Я Роман Андреевич, старший аналитик Skin Protokol и ассистент Марии.\n\n"
+            "Моя задача — оценить ваш уход строго индивидуально.\n\n"
+            "Для начала напишите, как к вам обращаться:",
+            reply_markup=get_mode_keyboard()
+        )
+    await callback.answer()
+
+
+@dp.message(StateFilter(Form.waiting_for_name))
+async def process_name(message: types.Message, state: FSMContext):
+    name = message.text.strip()
+
+    await state.update_data(user_name=name)
+    try:
+        db.update_user_name(message.from_user.id, name)
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить имя в БД: {e}")
+
+    await state.set_state(Form.survey)
+    await state.update_data(survey_step=0, tags=[])
+
+    msg = await message.answer(
+        f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, "
+        f"с чем мы работаем. 👇"
+    )
+    await asyncio.sleep(1.5)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+    await send_question(message, state)
+
+
+async def send_question(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    step = data.get("survey_step", 0)
+
+    if step >= len(SURVEY_QUESTIONS):
+        await finish_survey(message, state)
+        return
+
+    q = SURVEY_QUESTIONS[step]
+    buttons = []
+    for opt_text, tag in q["options"]:
+        buttons.append([InlineKeyboardButton(text=opt_text, callback_data=f"q_{step}_{tag or 'none'}")])
+
+    if q["multi"]:
+        buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"q_{step}_done")])
+
+    if step > 0:
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_{step}")])
+
+    await message.answer(
+        q["text"],
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@dp.callback_query(F.data.regexp(r"^back_\d+$"))
+async def process_back(callback: types.CallbackQuery, state: FSMContext):
+    step = int(callback.data.split("_")[1])
+    new_step = step - 1
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+
+    current_q = SURVEY_QUESTIONS[step]
+    for _, tag in current_q["options"]:
+        if tag and tag in tags:
+            tags.remove(tag)
+
+    await state.update_data(survey_step=new_step, tags=tags)
+    await callback.message.delete()
+    await send_question(callback.message, state)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.regexp(r"^q_\d+_.+$"))
+async def process_answer(callback: types.CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_", 2)
+    step = int(parts[1])
+    tag = parts[2]
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+
+    if tag == "done":
+        await state.update_data(survey_step=step + 1)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+        await callback.answer()
+        return
+
+    if step == 4 and tag == "medicine_other":
+        await state.set_state(Form.waiting_for_medicine)
+        await callback.message.delete()
+        await callback.message.answer("Напишите ваш вариант в ответном сообщении:")
+        await callback.answer()
+        return
+
+    if step == 5:
+        if tag == "no_allergy":
+            await state.update_data(survey_step=6)
+            await callback.message.delete()
+            await send_question(callback.message, state)
+            await callback.answer()
+            return
+
+        if tag == "has_allergy":
+            await state.update_data(survey_step=6)
+            await state.set_state(Form.waiting_for_allergy)
+            await callback.message.delete()
+            await callback.message.answer("Напишите название аллергена в ответном сообщении:")
+            await callback.answer()
+            return
+
+    if step == 0 and tag == "normal":
+        q1_tags = [t for _, t in SURVEY_QUESTIONS[0]["options"] if t]
+        tags = [t for t in tags if t not in q1_tags]
+        tags.append("normal")
+        await state.update_data(tags=tags, survey_step=1)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+        await callback.answer()
+        return
+
+    if step == 0 and tag != "normal" and "normal" in tags:
+        tags.remove("normal")
+        await state.update_data(tags=tags)
+
+    if tag != "none" and tag not in tags:
+        tags.append(tag)
+        await state.update_data(tags=tags)
+
+    q = SURVEY_QUESTIONS[step]
+
+    if not q["multi"]:
+        await state.update_data(survey_step=step + 1)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+    else:
+        await callback.answer("Добавлено! Выберите ещё или нажмите «Готово».")
+        return
+
+    await callback.answer()
+
+
+@dp.message(StateFilter(Form.waiting_for_medicine))
+async def process_medicine(message: types.Message, state: FSMContext):
+    text = message.text.strip()
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+    tags.append("medicine")
+
+    await state.update_data(tags=tags)
+
+    other = data.get("medicine_other", [])
+    other.append(text)
+    await state.update_data(medicine_other=other)
+
+    await state.set_state(Form.survey)
+    await message.answer(f"Записано: «{text}».")
+    await send_question(message, state)
+
+
+@dp.message(StateFilter(Form.waiting_for_allergy))
+async def process_allergy(message: types.Message, state: FSMContext):
+    allergy_text = message.text.strip()
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+    tags.append(f"allergy_{allergy_text}")
+
+    await state.update_data(tags=tags)
+    await state.set_state(Form.survey)
+    await message.answer(f"Записано: аллергия на «{allergy_text}». Учту это при анализе.")
+    await send_question(message, state)
+
+
+async def finish_survey(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    tags = data.get("tags", [])
+
+    user_name = data.get("user_name")
+    if not user_name:
+        try:
+            user_name = db.get_user_name(message.chat.id)
+        except Exception:
+            user_name = None
+    if not user_name:
+        user_name = message.from_user.first_name or "Клиент"
+
+    await state.update_data(user_name=user_name)
+
+    user_id = message.chat.id
+
+    db.update_user_tags(user_id, tags)
+    if user_id not in UNLIMITED_IDS:
+        db.mark_survey_completed(user_id)
+        logger.info(f"🔒 Карантин 30 дней активирован для user_id={user_id}")
+    else:
+        logger.info(f"👑 Безлимит: карантин НЕ активирован для user_id={user_id}")
+
+    await message.answer("📊 Диагностика завершена.")
+
+    loading_msg = await message.answer("🔬 Анализирую ваши ответы...")
+
+    try:
+        diagnosis = await generate_diagnosis(user_name, tags)
+    except Exception as e:
+        logger.error(f"Ошибка генерации диагноза: {e}")
+        diagnosis = f"{user_name}, диагностика выявила нарушение барьерной функции. Требуется физиологичный подход."
+
+    try:
+        await loading_msg.edit_text(diagnosis)
+    except Exception as e:
+        logger.error(f"Не удалось отредактировать сообщение: {e}")
+        await message.answer(diagnosis)
+
+    await message.answer(
+        "Теперь наша задача — выстроить безопасный физиологичный уход.\n\n"
+        "Вы можете собрать свой уход <b>САМОСТОЯТЕЛЬНО</b>, проверяя каждое средство вместе со мной, "
+        "или сразу <b>ЗАБРАТЬ ГОТОВЫЙ УХОД</b> от Марии.\n\n"
+        "Если у вас сейчас вообще <b>НЕТ КОСМЕТИКИ</b> — мы выстроим всё с чистого листа.",
+        reply_markup=get_path_keyboard(),
+        parse_mode="HTML"
+    )
+
+    await state.set_state(Form.waiting_for_composition)
+
+
+@dp.callback_query(F.data == "go_scanner")
+async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    user_id = callback.from_user.id
+    user = db.get_or_create_user(user_id)
+
+    if user.get("survey_done", 0) == 0:
+        await callback.message.answer(
+            "Для того чтобы я мог качественно проанализировать ваш уход, мне нужно узнать вашу кожу. "
+            "Пожалуйста, пройдите короткую диагностику 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="▶️ Пройти анкету", callback_data="start_diagnosis")]
+            ])
+        )
+        await callback.answer()
+        return
+
+    if check_user_limits(user_id, user):
+        await callback.message.answer(
+            "Какое уходовое средство вы хотите проверить?",
+            reply_markup=get_next_category_keyboard()
+        )
+        await state.set_state(Form.waiting_for_composition)
+    else:
+        await send_paywall(callback.message)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.in_(["want_mariya_box", "no_care"]))
+async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+
+    text = (
+        "▫️ <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного PDF-руководства. "
+        "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку каждого "
+        "средства и распишет понятную инструкцию (что и как наносить утром и вечером). Вы покупаете "
+        "всё сами по готовому списку. Этот файл останется с вами как надежная база: Мария добавит "
+        "позиции на перспективу, чтобы вы всегда знали, какими средствами дополнить и усилить свой "
+        "протокол.\n\n"
+        "▫️ <b>Индивидуальный Бокс (от 9 000 ₽)</b> — премиальный формат ухода «под ключ». "
+        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий "
+        "протокол. Вы получаете эстетичную коробку с полноразмерными средствами, подобранными "
+        "строго под вашу кожу, и подробную инструкцию. В эту стоимость уже включено ведение от "
+        "Марии: она будет на связи, чтобы контролировать динамику и довести вас до результата. "
+        "Вам не нужно ходить по магазинам — забираете посылку и начинаете свой путь к здоровой "
+        "коже по протоколу."
+    )
+    await callback.message.answer(text, reply_markup=get_protocol_keyboard(), parse_mode="HTML")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "back_to_scanner")
+async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    user = db.get_or_create_user(callback.from_user.id)
+    if check_user_limits(callback.from_user.id, user):
+        await callback.message.answer(
+            "Какое уходовое средство вы хотите проверить?",
+            reply_markup=get_next_category_keyboard()
+        )
+        await state.set_state(Form.waiting_for_composition)
+    else:
+        await send_paywall(callback.message)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "next_wash")
+async def next_category_wash(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await state.update_data(category="wash")
+    await callback.message.answer(
+        "🧼 Режим: *Смываемое средство*.\n\n"
+        "Пришлите состав (пенка, гель, гидрофильное масло).",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "next_care")
+async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await state.update_data(category="care")
+    await callback.message.answer(
+        "🧴 Режим: *Несмываемое средство*.\n\n"
+        "Пришлите состав (крем, сыворотка, тоник).",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@dp.message(StateFilter(Form.waiting_for_composition), F.photo)
+async def process_photo_composition(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = db.get_or_create_user(user_id)
+
+    user_name = await _resolve_user_name(message, state, user)
+
+    data = await state.get_data()
+    category_fsm = data.get("category", None)
+
+    if not category_fsm:
+        await message.answer(
+            "⚠️ Сначала выберите тип средства: смываемое оно или нет.",
+            reply_markup=get_next_category_keyboard()
+        )
+        return
+
+    if category_fsm == "wash":
+        category = "cleansing"
+    else:
+        category = "leave_on"
+
+    if not check_user_limits(user_id, user):
+        db.schedule_retention_notifications(user_id)
+        await send_paywall(message)
+        return
+
+    loading_msg = await message.answer("🔬 Анализирую фото состава...")
+
+    photo = message.photo[-1]
+    file_id = photo.file_id
+
+    try:
+        file = await bot.get_file(file_id)
+        photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+    except Exception as e:
+        logger.error(f"Не удалось получить файл: {e}")
+        await loading_msg.edit_text(
+            "❌ Не удалось загрузить фото. Попробуйте ещё раз — лимит не списан."
+        )
+        return
+
+    tags = user.get("tags", [])
+
+    try:
+        result = await analyze_composition_photo(photo_url, tags, user_name, category)
+        verdict = result["verdict"]
+        status = result["status"]
+
+        if status not in ANALYZABLE_STATUSES:
+            await loading_msg.edit_text(
+                "⚠️ Фото не читается полностью.\n\n"
+                "Пожалуйста, сделайте более чёткое фото этикетки (при хорошем свете, "
+                "крупным планом, чтобы был виден весь список) или пришлите состав текстом.\n\n"
+                "Лимит не списан, попробуйте ещё раз."
             )
+            return
 
-        result = response.choices[0].message.content
+        db.save_analysis(user_id, f"[ФОТО] {file_id}", verdict, status)
 
-        if not result:
-            logger.error("Модель вернула пустой текст (фото)")
-            return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте ещё раз.", "status": "error"}
+        if status in ["bad", "hidden_threat"]:
+            db.increment_bad_bottles(user_id)
+        else:
+            db.reset_bad_bottles(user_id)
 
-        result = _safe_trim(result, 450)
-        return {"verdict": result, "status": _get_status(result)}
+        is_unlimited = (user_id in UNLIMITED_IDS)
+        if is_unlimited:
+            await loading_msg.edit_text(verdict)
+            await message.answer("👑 Режим безлимита: проверок не ограничено.")
+        elif not db.has_active_subscription(user_id):
+            db.decrement_free_checks(user_id)
+            remaining = db.get_free_checks(user_id)
+            await loading_msg.edit_text(verdict)
+            if remaining > 0:
+                await message.answer(f"Осталось бесплатных проверок: {remaining}")
+            else:
+                db.schedule_retention_notifications(user_id)
+                await send_paywall(message)
+        else:
+            await loading_msg.edit_text(verdict)
+
+        await state.update_data(category=None)
+        await message.answer(
+            "Проверим следующее средство? Уточните, оно смываемое или нет:",
+            reply_markup=get_next_category_keyboard()
+        )
 
     except Exception as e:
         logger.error(f"Ошибка анализа фото: {e}")
-        return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте позже.", "status": "error"}
-
-
-# ================== ГЕНЕРАЦИЯ ДИАГНОЗА ==================
-async def generate_diagnosis(name: str, tags: list) -> str:
-    tags_str = _translate_tags(tags)
-
-    has_allergy = any(t.startswith("allergy_") for t in tags)
-    has_medicine = "medicine" in tags
-    has_pregnancy = "pregnancy" in tags
-    has_personal = has_allergy or has_medicine or has_pregnancy
-
-    if has_personal:
-        personal_note = "\n⚠️ Есть персональные данные (аллергия/медицина/беременность). Упоминай их в шаге ПЕРСОНАЛИЗАЦИЯ прямо и кратко."
-    else:
-        personal_note = "\n⚠️ Персональных данных НЕТ. ПРОПУСТИ шаг ПЕРСОНАЛИЗАЦИЯ полностью."
-
-    system_prompt = BASE_PROMPT
-
-    user_prompt = f"""Имя клиента: {name}
-Состояние кожи: {tags_str}{personal_note}
-
-ЗАДАЧА: Диагноз по формуле, СТРОГО до 400 символов.
-
-ШАГИ:
-1. ФАКТ — состояние кожи.
-2. МЕХАНИКА — причина (профессиональные термины).
-3. ПЕРСОНАЛИЗАЦИЯ — ТОЛЬКО если есть данные.
-4. СТРАТЕГИЯ — вектор работы.
-
-ЖЁСТКИЕ ПРАВИЛА:
-- Максимум 400 символов.
-- ЗАПРЕЩЕНЫ: приветствия, вводные слова, лирика.
-- ПЕРВОЕ СЛОВО — имя клиента.
-- ЗАПРЕЩЕНО использовать слово «тег» или «теги».
-- ПИШИ ПО-РУССКИ.
-- НИКОГДА не обрывай предложение.
-
-ЭТАЛОН:
-«Мария, фиксируем выраженную реактивность. Это прямое следствие нарушения целостности эпидермиса и дефицита структурных липидов. Зафиксированы ваша беременность, медицинский диагноз и аллергия на гиалуроновую кислоту. Наша стратегия — использовать физиологичный подход: компенсировать дефицит липидов, минимизировать трансэпидермальную потерю влаги и восстановить гидролипидную мантию».
-
-ФОРМАТ: один абзац, 3–4 предложения."""
-
-    try:
-        response = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=TEMPERATURE_DIAGNOSIS,
-            max_tokens=MAX_TOKENS,
+        await loading_msg.edit_text(
+            "❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан."
         )
 
-        if not response or not response.choices:
-            return "Сухость и нарушение барьера. Требуется физиологичный подход: компенсировать дефицит липидов, восстановить целостность гидролипидной мантии."
 
-        result = response.choices[0].message.content
+@dp.message(StateFilter(Form.waiting_for_composition))
+async def process_composition(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = db.get_or_create_user(user_id)
 
-        if not result:
-            return "Сухость и нарушение барьера. Требуется физиологичный подход: компенсировать дефицит липидов, восстановить целостность гидролипидной мантии."
+    user_name = await _resolve_user_name(message, state, user)
 
-        return _safe_trim(result, 400)
+    data = await state.get_data()
+    category_fsm = data.get("category", None)
+
+    if not category_fsm:
+        await message.answer(
+            "⚠️ Сначала выберите тип средства: смываемое оно или нет.",
+            reply_markup=get_next_category_keyboard()
+        )
+        return
+
+    if category_fsm == "wash":
+        category = "cleansing"
+    else:
+        category = "leave_on"
+
+    if not check_user_limits(user_id, user):
+        db.schedule_retention_notifications(user_id)
+        await send_paywall(message)
+        return
+
+    composition = message.text
+    tags = user.get("tags", [])
+
+    loading_msg = await message.answer("🔬 Анализирую состав...")
+
+    try:
+        result = await analyze_composition(composition, tags, user_name, category)
+        verdict = result["verdict"]
+        status = result["status"]
+
+        if status not in ANALYZABLE_STATUSES:
+            await loading_msg.edit_text(
+                "⚠️ В этом сообщении я не вижу состава (INCI).\n\n"
+                "Пришлите, пожалуйста, именно список ингредиентов с упаковки — "
+                "текстом или фото. Вопросы, жалобы и общие фразы я не анализирую.\n\n"
+                "Лимит не списан, попробуйте ещё раз."
+            )
+            return
+
+        db.save_analysis(user_id, composition, verdict, status)
+
+        if status in ["bad", "hidden_threat"]:
+            db.increment_bad_bottles(user_id)
+        else:
+            db.reset_bad_bottles(user_id)
+
+        is_unlimited = (user_id in UNLIMITED_IDS)
+        if is_unlimited:
+            await loading_msg.edit_text(verdict)
+            await message.answer("👑 Режим безлимита: проверок не ограничено.")
+        elif not db.has_active_subscription(user_id):
+            db.decrement_free_checks(user_id)
+            remaining = db.get_free_checks(user_id)
+            await loading_msg.edit_text(verdict)
+            if remaining > 0:
+                await message.answer(f"Осталось бесплатных проверок: {remaining}")
+            else:
+                db.schedule_retention_notifications(user_id)
+                await send_paywall(message)
+        else:
+            await loading_msg.edit_text(verdict)
+
+        await state.update_data(category=None)
+        await message.answer(
+            "Проверим следующее средство? Уточните, оно смываемое или нет:",
+            reply_markup=get_next_category_keyboard()
+        )
 
     except Exception as e:
-        logger.error(f"Ошибка в generate_diagnosis: {e}")
-        return "Сухость и нарушение барьера. Требуется физиологичный подход: компенсировать дефицит липидов, восстановить целостность гидролипидной мантии."
+        logger.error(f"Ошибка анализа: {e}")
+        await loading_msg.edit_text(
+            "❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан."
+        )
+
+
+@dp.callback_query(F.data == "pay_audit_30")
+async def pay_audit_30(callback: types.CallbackQuery):
+    await callback.message.answer(
+        "🔧 Переход к оплате тарифа «Аудит» (1000 ₽) будет доступен здесь (Продамус)."
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "pay_restore_90")
+async def pay_restore_90(callback: types.CallbackQuery):
+    await callback.message.answer(
+        "🔧 Переход к оплате тарифа «Восстановление» (2500 ₽) будет доступен здесь (Продамус)."
+    )
+    await callback.answer()
+
+
+@dp.message(F.text == "/sub")
+async def my_subscription(message: types.Message):
+    user_id = message.from_user.id
+
+    if user_id in UNLIMITED_IDS:
+        await message.answer(
+            "👑 *Режим безлимита активен.*",
+            parse_mode="Markdown"
+        )
+        return
+
+    sub = db.get_subscription(user_id)
+
+    if not sub or sub["expires_at"] <= datetime.now():
+        await message.answer(
+            "❌ У вас нет активной подписки.\n\nОформите доступ:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
+                [InlineKeyboardButton(text="💳 Восстановление (90 дней) — 2500 ₽ 🔥", callback_data="pay_restore_90")],
+            ])
+        )
+    else:
+        await message.answer(
+            f"✅ Ваша подписка активна до:\n"
+            f"📅 {sub['expires_at'].strftime('%d.%m.%Y %H:%M')}"
+        )
+
+
+@dp.message(F.text == "/help")
+async def help_text(message: types.Message):
+    await message.answer(
+        "🤖 Я — Роман Андреевич, ИИ-аналитик косметических составов.\n\n"
+        "1. Пройдите диагностику\n"
+        "2. Выберите тип средства:\n"
+        "   🫧 Смываемое — пенки, гели, гидрофильные масла\n"
+        "   🧴 Несмываемое — кремы, сыворотки, тоники\n"
+        "   👑 Готовый уход от Марии — премиальный сервис подбора\n"
+        "3. Пришлите фото состава или текст (INCI)\n"
+        "4. Получите разбор\n\n"
+        "📌 Связь: @miroslavskayaboks"
+    )
+
+
+async def main():
+    logger.info("🚀 Бот запущен!")
+
+    try:
+        await bot.set_my_description(
+            description=(
+                "Я — Роман Андреевич, умный ИИ-аналитик проекта Skin Protokol. Мой создатель, "
+                "эстетист Мария Мирославская, обучила меня переводить составы косметики с "
+                "маркетингового языка на человеческий.\n\n"
+                "Я проверю ваш текущий уход и будущие покупки, найду скрытые угрозы и помогу "
+                "собрать безопасную базу без маркетинговых пустышек.\n\n"
+                "🎁 Даю 2 бесплатные проверки для новых пользователей.\n"
+                "Жмите СТАРТ 👇"
+            )
+        )
+        await bot.set_my_short_description(
+            short_description=(
+                "AI-аудитор косметики. Разбор составов (INCI) под вашу кожу."
+            )
+        )
+        logger.info("✅ Описание бота обновлено")
+    except Exception as e:
+        logger.error(f"Не удалось обновить описание бота: {e}")
+
+    asyncio.create_task(retention_worker())
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
