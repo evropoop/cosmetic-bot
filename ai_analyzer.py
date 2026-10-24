@@ -7,15 +7,18 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# Настраиваем клиент Polza AI с адекватным таймаутом и встроенными ретраями
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
-    base_url="https://polza.ai/api/v1"
+    base_url="https://polza.ai/api/v1",
+    timeout=60.0,
+    max_retries=2
 )
 
-MODEL_NAME = "anthropic/claude-sonnet-4.5"
+MODEL_NAME = os.getenv("MODEL_NAME", "anthropic/claude-sonnet-4.5")
 TEMPERATURE_ANALYSIS = 0.3
 TEMPERATURE_DIAGNOSIS = 0.4
-MAX_TOKENS = 500
+MAX_TOKENS = 600
 
 BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
 Ты — Роман Андреевич, строгий премиальный химик-технолог и косметический аудитор. Общайся на уважительное «Вы». Твой образ — это надежная стена и абсолютная безопасность для клиентки. Транслируй мужскую профессиональную опеку: ты забираешь у нее тревогу и принимаешь решения за нее («Вы можете быть спокойны», «Я беру этот вопрос на себя»). Будь строг к производителям косметики, но максимально бережен к самой женщине.
@@ -112,6 +115,7 @@ TAG_MAP = {
     "normal": "Нормально",
 }
 
+
 def _translate_tags(tags: list) -> str:
     if not tags:
         return "нет данных"
@@ -120,6 +124,9 @@ def _translate_tags(tags: list) -> str:
         if t.startswith("allergy_"):
             name = t[len("allergy_"):]
             result.append(f"аллергия на {name}")
+        elif t.startswith("med_"):
+            name = t[len("med_"):]
+            result.append(f"медицинский фактор ({name})")
         elif t in TAG_MAP:
             result.append(TAG_MAP[t])
         else:
@@ -164,7 +171,8 @@ def _get_status(result: str) -> str:
         return "unknown"
 
 
-def _safe_trim(text: str, limit: int = 450) -> str:
+def _safe_trim(text: str, limit: int = 500) -> str:
+    text = text.strip()
     echo_markers = [
         "РОЛЬ И ТОНАЛЬНОСТЬ", "ЧАСТЬ 1", "ЧАСТЬ 2", "ЧАСТЬ 3", "ЧАСТЬ 4",
         "АБСОЛЮТНОЕ ВЕТО", "ВЫБЕРИ СТРОГО ОДИН СТАТУС", "ПРИМЕР 1",
@@ -189,23 +197,23 @@ def _safe_trim(text: str, limit: int = 450) -> str:
         return text
 
     cut = text[:limit].rfind(".")
-    if cut > 200:
+    if cut > 150:
         return text[:cut + 1]
 
     cut = text[:limit].rfind(" ")
-    if cut > 200:
-        return text[:cut]
+    if cut > 150:
+        return text[:cut] + "..."
 
     return text[:limit]
 
 
-async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) -> str:
+async def _call_llm(system_prompt: str, user_content, temperature: float) -> str:
     try:
         response = await client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_content}
             ],
             temperature=temperature,
             max_tokens=MAX_TOKENS,
@@ -215,29 +223,27 @@ async def _call_llm(system_prompt: str, user_prompt: str, temperature: float) ->
             return ""
 
         content = response.choices[0].message.content
-        if not content:
-            return ""
-
-        return content
+        return content.strip() if content else ""
 
     except Exception as e:
-        logger.error(f"Ошибка вызова LLM: {e}")
+        logger.error(f"Ошибка вызова LLM ({MODEL_NAME}): {e}")
         return ""
 
 
-async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
-    result_text = await _call_llm(system_prompt, user_prompt, TEMPERATURE_ANALYSIS)
+async def _call_llm_with_retry(system_prompt: str, user_content) -> dict:
+    result_text = await _call_llm(system_prompt, user_content, TEMPERATURE_ANALYSIS)
 
     if result_text:
-        result_text = _safe_trim(result_text, 450)
+        result_text = _safe_trim(result_text, 500)
         status = _get_status(result_text)
         if status not in ["error", "unknown"]:
             return {"verdict": result_text, "status": status}
 
-    retry_text = await _call_llm(system_prompt, user_prompt, 0.0)
+    # Повторная попытка с нулевой температурой, если первый ответ сорвался
+    retry_text = await _call_llm(system_prompt, user_content, 0.0)
 
     if retry_text:
-        retry_text = _safe_trim(retry_text, 450)
+        retry_text = _safe_trim(retry_text, 500)
         status = _get_status(retry_text)
         return {"verdict": retry_text, "status": status}
 
@@ -250,8 +256,8 @@ async def _call_llm_with_retry(system_prompt: str, user_prompt: str) -> dict:
 async def analyze_composition(composition: str, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
     tags_str = _translate_tags(tags)
 
-    if len(composition) > 2000:
-        composition = composition[:2000] + "..."
+    if len(composition) > 2500:
+        composition = composition[:2500] + "..."
 
     system_prompt = _build_system_prompt(category)
 
@@ -268,9 +274,9 @@ async def analyze_composition(composition: str, tags: list, user_name: str = "",
     return await _call_llm_with_retry(system_prompt, user_prompt)
 
 
-async def analyze_composition_photo(photo_urls, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
-    if isinstance(photo_urls, str):
-        photo_urls = [photo_urls]
+async def analyze_composition_photo(photo_data_urls: list, tags: list, user_name: str = "", category: str = "leave_on") -> dict:
+    if isinstance(photo_data_urls, str):
+        photo_data_urls = [photo_data_urls]
 
     tags_str = _translate_tags(tags)
     system_prompt = _build_system_prompt(category)
@@ -279,7 +285,7 @@ async def analyze_composition_photo(photo_urls, tags: list, user_name: str = "",
         f"Имя клиента: {user_name or 'Клиент'}\n"
         f"Состояние кожи: {tags_str}\n"
         f"Категория средства: {'Очищение / Демакияж' if category == 'cleansing' else 'Несмываемый уход'}\n"
-        f"На фото — состав (INCI). Прочитай и проанализируй. Фотографий: {len(photo_urls)}.\n\n"
+        f"На фото — состав (INCI). Прочитай и проанализируй. Фотографий: {len(photo_data_urls)}.\n\n"
         f"⚠️ КРИТИЧЕСКИ ВАЖНО:\n"
         f"- КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО додумывать или угадывать невидимые компоненты.\n"
         f"- Если текст INCI размыт, обрезан, уходит за изгиб флакона или закрыт бликом, "
@@ -292,46 +298,22 @@ async def analyze_composition_photo(photo_urls, tags: list, user_name: str = "",
     )
 
     content = [{"type": "text", "text": user_prompt}]
-    for url in photo_urls:
-        content.append({"type": "image_url", "image_url": {"url": url}})
+    for data_url in photo_data_urls:
+        content.append({"type": "image_url", "image_url": {"url": data_url}})
 
-    try:
-        response = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content}
-            ],
-            temperature=TEMPERATURE_ANALYSIS,
-            max_tokens=MAX_TOKENS,
-        )
-
-        if not response or not response.choices:
-            return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте ещё раз.", "status": "error"}
-
-        result = response.choices[0].message.content
-
-        if not result:
-            return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте ещё раз.", "status": "error"}
-
-        result = _safe_trim(result, 450)
-        return {"verdict": result, "status": _get_status(result)}
-
-    except Exception as e:
-        logger.error(f"Ошибка анализа фото: {e}")
-        return {"verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Попробуйте позже.", "status": "error"}
+    return await _call_llm_with_retry(system_prompt, content)
 
 
 async def generate_diagnosis(name: str, tags: list) -> str:
     tags_str = _translate_tags(tags)
 
     has_allergy = any(t.startswith("allergy_") for t in tags)
-    has_medicine = "medicine" in tags
+    has_medicine = "medicine" in tags or any(t.startswith("med_") for t in tags)
     has_pregnancy = "pregnancy" in tags
     has_personal = has_allergy or has_medicine or has_pregnancy
 
     if has_personal:
-        personal_note = "\n⚠️ Есть персональные данные. Упоминай их в шаге ПЕРСОНАЛИЗАЦИЯ."
+        personal_note = "\n⚠️ Есть персональные данные (аллергия/беременность/медицина). Упоминай их в шаге ПЕРСОНАЛИЗАЦИЯ."
     else:
         personal_note = "\n⚠️ Персональных данных НЕТ. ПРОПУСТИ шаг ПЕРСОНАЛИЗАЦИЯ."
 
@@ -343,30 +325,16 @@ async def generate_diagnosis(name: str, tags: list) -> str:
 ЗАДАЧА: Диагноз по формуле, СТРОГО до 400 символов.
 
 ШАГИ: ФАКТ, МЕХАНИКА, ПЕРСОНАЛИЗАЦИЯ (если есть), СТРАТЕГИЯ.
-ПРАВИЛА: Максимум 400 символов, первое слово — имя, без приветствий и тегов, не обрывать мысль.
+ПРАВИЛА: Максимум 400 символов, первое слово — имя, без приветствий и слова "тег", не обрывать мысль.
 
 ФОРМАТ: один абзац, 3–4 предложения."""
 
-    try:
-        response = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=TEMPERATURE_DIAGNOSIS,
-            max_tokens=MAX_TOKENS,
+    result = await _call_llm(system_prompt, user_prompt, TEMPERATURE_DIAGNOSIS)
+    if not result:
+        return (
+            f"{name}, фиксирую нарушение целостности гидролипидной мантии и повышенную "
+            f"чувствительность эпидермиса. Вы можете быть спокойны, я беру этот вопрос на себя: "
+            f"мы исключим агрессивные ПАВы и восстановим липидный барьер физиологичными составами."
         )
 
-        if not response or not response.choices:
-            return "Сухость и нарушение барьера. Требуется физиологичный подход: компенсировать дефицит липидов, восстановить целостность гидролипидной мантии."
-
-        result = response.choices[0].message.content
-        if not result:
-            return "Сухость и нарушение барьера. Требуется физиологичный подход."
-
-        return _safe_trim(result, 400)
-
-    except Exception as e:
-        logger.error(f"Ошибка в generate_diagnosis: {e}")
-        return "Сухость и нарушение барьера. Требуется физиологичный подход: компенсировать дефицит липидов, восстановить целостность гидролипидной мантии."
+    return _safe_trim(result, 450)
