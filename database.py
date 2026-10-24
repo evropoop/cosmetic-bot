@@ -6,7 +6,9 @@ DB_NAME = "cosmetic_bot.db"
 
 
 def get_connection():
-    return sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_NAME, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
 
 
 def init_db():
@@ -22,6 +24,8 @@ def init_db():
         bad_bottles_in_a_row INTEGER DEFAULT 0,
         survey_done INTEGER DEFAULT 0,
         survey_completed_at TEXT,
+        user_name TEXT,
+        last_activity_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -31,10 +35,8 @@ def init_db():
     columns = [row[1] for row in cursor.fetchall()]
     if "user_name" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN user_name TEXT")
-        print("🔄 Миграция: добавлена колонка user_name")
     if "last_activity_at" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN last_activity_at TEXT")
-        print("🔄 Миграция: добавлена колонка last_activity_at")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS subscriptions (
@@ -80,9 +82,20 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS scheduled_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        notification_type TEXT NOT NULL,
+        scheduled_at TEXT NOT NULL,
+        sent INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+    """)
+
     conn.commit()
     conn.close()
-    print("✅ База данных инициализирована")
+    print("✅ База данных инициализирована (WAL mode)")
 
 
 # ================== ПОЛЬЗОВАТЕЛИ ==================
@@ -99,8 +112,8 @@ def get_or_create_user(user_id: int, username: str = None):
     if not row:
         now = datetime.now().isoformat()
         cursor.execute(
-            "INSERT INTO users (user_id, username, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (user_id, username, now, now)
+            "INSERT INTO users (user_id, username, created_at, updated_at, last_activity_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, username, now, now, now)
         )
         conn.commit()
         conn.close()
@@ -115,10 +128,14 @@ def get_or_create_user(user_id: int, username: str = None):
             "user_name": None
         }
 
+    if username and row[1] != username:
+        cursor.execute("UPDATE users SET username = ? WHERE user_id = ?", (username, user_id))
+        conn.commit()
+
     conn.close()
     return {
         "user_id": row[0],
-        "username": row[1],
+        "username": username or row[1],
         "tags": json.loads(row[2]) if row[2] else [],
         "free_checks": row[3],
         "bad_bottles_in_a_row": row[4],
@@ -145,13 +162,10 @@ def get_user_name(user_id: int) -> str:
     cursor.execute("SELECT user_name FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
-    if row and row[0]:
-        return row[0]
-    return ""
+    return row[0] if (row and row[0]) else ""
 
 
 def touch_user_activity(user_id: int):
-    """Обновляет время последней активности пользователя."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -163,7 +177,6 @@ def touch_user_activity(user_id: int):
 
 
 def get_last_activity(user_id: int):
-    """Возвращает время последней активности или None."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT last_activity_at FROM users WHERE user_id = ?", (user_id,))
@@ -189,11 +202,12 @@ def update_user_tags(user_id: int, tags: list):
 
 
 def mark_survey_completed(user_id: int):
+    now = datetime.now().isoformat()
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         "UPDATE users SET survey_completed_at = ?, updated_at = ? WHERE user_id = ?",
-        (datetime.now().isoformat(), datetime.now().isoformat(), user_id)
+        (now, now, user_id)
     )
     conn.commit()
     conn.close()
@@ -203,7 +217,7 @@ def decrement_free_checks(user_id: int):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE users SET free_checks = free_checks - 1, updated_at = ? WHERE user_id = ?",
+        "UPDATE users SET free_checks = MAX(0, free_checks - 1), updated_at = ? WHERE user_id = ?",
         (datetime.now().isoformat(), user_id)
     )
     conn.commit()
@@ -253,6 +267,7 @@ def save_subscription(user_id: int, tariff: str):
     )
     conn.commit()
     conn.close()
+    cancel_retention_notifications(user_id)
 
 
 def get_subscription(user_id: int):
@@ -286,27 +301,7 @@ def save_analysis(user_id: int, composition: str, verdict: str, status: str):
 
 
 # ================== RETENTION-УВЕДОМЛЕНИЯ ==================
-def _ensure_notifications_table():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS scheduled_notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        notification_type TEXT NOT NULL,
-        scheduled_at TEXT NOT NULL,
-        sent INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-
 def schedule_retention_notifications(user_id: int):
-    """Планирует 6 уведомлений: 1м / 2ч / 24ч / 48ч / 7д / 30д."""
-    _ensure_notifications_table()
-
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -337,7 +332,6 @@ def schedule_retention_notifications(user_id: int):
 
 
 def cancel_retention_notifications(user_id: int):
-    _ensure_notifications_table()
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM scheduled_notifications WHERE user_id = ? AND sent = 0", (user_id,))
@@ -346,7 +340,6 @@ def cancel_retention_notifications(user_id: int):
 
 
 def get_due_notifications():
-    _ensure_notifications_table()
     conn = get_connection()
     cursor = conn.cursor()
     now = datetime.now().isoformat()
