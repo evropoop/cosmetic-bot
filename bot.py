@@ -1,4 +1,6 @@
 import os
+import io
+import base64
 import asyncio
 import logging
 import urllib.parse
@@ -10,7 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+    ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
 from dotenv import load_dotenv
@@ -27,7 +29,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 
-UNLIMITED_IDS = [MARIYA_ID, 1745568601, 1962088357, 5858622813]
+UNLIMITED_IDS = {MARIYA_ID, OWNER_ID, 1745568601, 1962088357, 5858622813}
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
@@ -44,7 +46,10 @@ MARIYA_BOX_URL = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(TEXT_
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN)
@@ -52,6 +57,7 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 db.init_db()
+
 
 class ActivityMiddleware(BaseMiddleware):
     """Обновляет last_activity_at при каждом сообщении/нажатии пользователя."""
@@ -62,6 +68,7 @@ class ActivityMiddleware(BaseMiddleware):
         except Exception:
             pass
         return await handler(event, data)
+
 
 dp.message.middleware(ActivityMiddleware())
 dp.callback_query.middleware(ActivityMiddleware())
@@ -82,6 +89,23 @@ def check_user_limits(user_id: int, user: dict) -> bool:
     has_sub = db.has_active_subscription(user_id)
     has_checks = user.get("free_checks", 0) > 0
     return is_unlimited or has_sub or has_checks
+
+
+def get_quarantine_days_left(user_id: int, user: dict) -> int:
+    """Возвращает количество оставшихся дней карантина на перепрохождение анкеты (0 если можно проходить)."""
+    if user_id in UNLIMITED_IDS or user.get("survey_done", 0) == 0:
+        return 0
+    completed_at = user.get("survey_completed_at")
+    if not completed_at:
+        return 0
+    try:
+        completed_date = datetime.fromisoformat(completed_at)
+        days_passed = (datetime.now() - completed_date).days
+        if days_passed < 30:
+            return 30 - days_passed
+    except Exception as e:
+        logger.error(f"Ошибка проверки карантина: {e}")
+    return 0
 
 
 def get_mode_keyboard():
@@ -119,6 +143,13 @@ def get_protocol_keyboard():
     ])
 
 
+def get_photo_actions_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")],
+        [InlineKeyboardButton(text="🗑 Сбросить фото и ввести текстом", callback_data="clear_photos")]
+    ])
+
+
 PAYWALL_TEXT = (
     "Проверка завершена — доступ к полному алгоритму пока не активирован. "
     "Выберите удобный для вас тариф:\n\n"
@@ -131,7 +162,9 @@ PAYWALL_TEXT = (
     "💳 <b>Восстановление (90 дней) — 2500 ₽ 🔥</b>\n"
     "Сопровождение на полный цикл обновления кожи.\n"
     "• 90 дней безлимитного разбора составов.\n"
-    "• 2 дополнительных перезаполнения анкеты. За 90 дней кожа восстановится и ее потребности изменятся. Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки под ваше новое, здоровое состояние."
+    "• 2 дополнительных перезаполнения анкеты. За 90 дней кожа восстановится и ее потребности изменятся. "
+    "Вы сможете заново пройти стартовый опрос, чтобы бот обновил данные и перестроил алгоритм проверки "
+    "под ваше новое, здоровое состояние."
 )
 
 
@@ -148,7 +181,7 @@ async def send_paywall(message: types.Message):
 
 SURVEY_QUESTIONS = [
     {
-        "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
+        "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько, затем нажмите «Готово»)",
         "options": [
             ("Акне / активные воспаления", "problem"),
             ("Закрытые комедоны / бугорки", "problem"),
@@ -193,14 +226,14 @@ SURVEY_QUESTIONS = [
         "multi": False,
     },
     {
-        "text": "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько)",
+        "text": "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько, затем нажмите «Готово»)",
         "options": [
             ("Аптечные мази (Скинорен и др.)", "reactive"),
             ("Гормональные нарушения", "medicine"),
             ("Кожные заболевания (розацеа и др.)", "medicine"),
             ("Беременность / лактация", "pregnancy"),
             ("Другое (напишу текстом)", "medicine_other"),
-            ("Ничего из перечисленного", None),
+            ("Ничего из перечисленного", "none_q5"),
         ],
         "multi": True,
     },
@@ -254,7 +287,7 @@ async def _send_retention_notification(user_id: int, notif_type: str):
 
 
 async def retention_worker():
-    """Отправляет уведомления только если с момента последнего сообщения прошло X."""
+    """Отправляет уведомления только если у пользователя нет подписки и прошло нужное время."""
     logger.info("⏰ Retention-воркер запущен")
     while True:
         try:
@@ -262,8 +295,12 @@ async def retention_worker():
             for n in due:
                 user_id = n["user_id"]
                 notif_type = n["type"]
-                delay = RETENTION_DELAYS.get(notif_type, 0)
 
+                if user_id in UNLIMITED_IDS or db.has_active_subscription(user_id):
+                    db.cancel_retention_notifications(user_id)
+                    continue
+
+                delay = RETENTION_DELAYS.get(notif_type, 0)
                 last_activity = db.get_last_activity(user_id)
 
                 if last_activity and delay > 0:
@@ -280,18 +317,18 @@ async def retention_worker():
         await asyncio.sleep(30)
 
 
-async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
+async def _resolve_user_name(user_obj: types.User, state: FSMContext) -> str:
     data = await state.get_data()
     name = data.get("user_name")
 
     if not name:
         try:
-            name = db.get_user_name(message.from_user.id)
+            name = db.get_user_name(user_obj.id)
         except Exception:
             name = None
 
     if not name:
-        name = message.from_user.first_name or "Клиент"
+        name = user_obj.first_name or "Клиент"
 
     if data.get("user_name") != name:
         await state.update_data(user_name=name)
@@ -305,32 +342,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     user = db.get_or_create_user(user_id, username)
 
-    if user_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
-        completed_at = user.get("survey_completed_at")
-        if completed_at:
-            try:
-                completed_date = datetime.fromisoformat(completed_at)
-                days_passed = (datetime.now() - completed_date).days
-
-                if days_passed < 30:
-                    days_left = 30 - days_passed
-                    await message.answer(
-                        f"Ваша диагностическая карта зафиксирована. Сейчас мы работаем с текущим "
-                        f"состоянием вашей кожи, ей нужно время на восстановление. ⏳\n\n"
-                        f"Обновить профиль и пройти диагностику заново можно будет через "
-                        f"*{days_left}* дней.",
-                        parse_mode="Markdown"
-                    )
-                    return
-            except Exception as e:
-                logger.error(f"Ошибка карантина: {e}")
-
-    try:
-        await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
-    except Exception as e:
-        logger.error(f"Не удалось отправить кружок: {e}")
-
+    # Отправляем приветственный кружок только новым пользователям (чтобы не спамить при каждом /start)
     if user.get("survey_done", 0) == 0:
+        try:
+            await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
+        except Exception as e:
+            logger.warning(f"Не удалось отправить кружок: {e}")
+
         await message.answer(
             f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
             f"Нажимая кнопку, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
@@ -341,11 +359,20 @@ async def cmd_start(message: types.Message, state: FSMContext):
         )
         return
 
+    # Если анкета уже пройдена — сразу пускаем к проверке составов (или предлагаем обновить анкету, если прошло 30 дней)
+    days_left = get_quarantine_days_left(user_id, user)
+
     if check_user_limits(user_id, user):
+        kb = get_next_category_keyboard()
+        if days_left == 0:
+            kb.inline_keyboard.append(
+                [InlineKeyboardButton(text="🔄 Обновить анкету диагностики", callback_data="start_diagnosis")]
+            )
+
         await message.answer(
-            "Какое уходовое средство вы хотите проверить?\n\n"
+            "С возвращением! Какое уходовое средство вы хотите проверить?\n\n"
             "Выберите тип средства 👇",
-            reply_markup=get_next_category_keyboard()
+            reply_markup=kb
         )
         await message.answer(
             "Также вы можете забрать готовый уход от Марии, нажав на кнопку внизу.",
@@ -364,7 +391,7 @@ async def code_box(message: types.Message, state: FSMContext):
 @dp.message(F.text == "🤖 Собрать уход с Романом")
 async def gather_care_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    user = db.get_or_create_user(user_id)
+    user = db.get_or_create_user(user_id, message.from_user.username)
 
     if user.get("survey_done", 0) == 0:
         await message.answer(
@@ -412,8 +439,22 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "start_diagnosis")
 async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
     user_id = callback.from_user.id
+    user = db.get_or_create_user(user_id, callback.from_user.username)
+
+    days_left = get_quarantine_days_left(user_id, user)
+    if days_left > 0:
+        await callback.answer(
+            f"Ваша диагностическая карта уже зафиксирована. Обновить профиль можно через {days_left} дн.",
+            show_alert=True
+        )
+        return
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
     user_name = db.get_user_name(user_id)
 
     if user_name:
@@ -437,7 +478,11 @@ async def start_diagnosis(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(StateFilter(Form.waiting_for_name))
 async def process_name(message: types.Message, state: FSMContext):
-    name = message.text.strip()
+    if not message.text:
+        await message.answer("Пожалуйста, напишите ваше имя текстом.")
+        return
+
+    name = message.text.strip()[:50]
 
     await state.update_data(user_name=name)
     try:
@@ -452,7 +497,7 @@ async def process_name(message: types.Message, state: FSMContext):
         f"{name}, отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, "
         f"с чем мы работаем. 👇"
     )
-    await asyncio.sleep(1.5)
+    await asyncio.sleep(1.2)
     try:
         await msg.delete()
     except Exception:
@@ -475,7 +520,7 @@ async def send_question(message: types.Message, state: FSMContext):
         buttons.append([InlineKeyboardButton(text=opt_text, callback_data=f"q_{step}_{tag or 'none'}")])
 
     if q["multi"]:
-        buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"q_{step}_done")])
+        buttons.append([InlineKeyboardButton(text="✅ Готово (перейти дальше)", callback_data=f"q_{step}_done")])
 
     if step > 0:
         buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_{step}")])
@@ -489,7 +534,7 @@ async def send_question(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data.regexp(r"^back_\d+$"))
 async def process_back(callback: types.CallbackQuery, state: FSMContext):
     step = int(callback.data.split("_")[1])
-    new_step = step - 1
+    new_step = max(0, step - 1)
 
     data = await state.get_data()
     tags = data.get("tags", [])
@@ -500,7 +545,10 @@ async def process_back(callback: types.CallbackQuery, state: FSMContext):
             tags.remove(tag)
 
     await state.update_data(survey_step=new_step, tags=tags)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await send_question(callback.message, state)
     await callback.answer()
 
@@ -514,16 +562,22 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
 
-    if tag == "done":
+    if tag == "done" or tag == "none_q5":
         await state.update_data(survey_step=step + 1)
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await send_question(callback.message, state)
         await callback.answer()
         return
 
     if step == 4 and tag == "medicine_other":
         await state.set_state(Form.waiting_for_medicine)
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await callback.message.answer("Напишите ваш вариант в ответном сообщении:")
         await callback.answer()
         return
@@ -531,7 +585,10 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
     if step == 5:
         if tag == "no_allergy":
             await state.update_data(survey_step=6)
-            await callback.message.delete()
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
             await send_question(callback.message, state)
             await callback.answer()
             return
@@ -539,7 +596,10 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         if tag == "has_allergy":
             await state.update_data(survey_step=6)
             await state.set_state(Form.waiting_for_allergy)
-            await callback.message.delete()
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
             await callback.message.answer("Напишите название аллергена в ответном сообщении:")
             await callback.answer()
             return
@@ -549,7 +609,10 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         tags = [t for t in tags if t not in q1_tags]
         tags.append("normal")
         await state.update_data(tags=tags, survey_step=1)
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await send_question(callback.message, state)
         await callback.answer()
         return
@@ -566,29 +629,32 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
 
     if not q["multi"]:
         await state.update_data(survey_step=step + 1)
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await send_question(callback.message, state)
+        await callback.answer()
     else:
-        await callback.answer("Добавлено! Выберите ещё или нажмите «Готово».")
-        return
-
-    await callback.answer()
+        await callback.answer("✅ Выбрано! Отметьте ещё или нажмите «Готово».")
 
 
 @dp.message(StateFilter(Form.waiting_for_medicine))
 async def process_medicine(message: types.Message, state: FSMContext):
-    text = message.text.strip()
+    if not message.text:
+        await message.answer("Пожалуйста, опишите ваш вариант текстом.")
+        return
+
+    text = message.text.strip()[:100]
 
     data = await state.get_data()
     tags = data.get("tags", [])
-    tags.append("medicine")
+    if "medicine" not in tags:
+        tags.append("medicine")
+    tags.append(f"med_{text}")
 
-    await state.update_data(tags=tags)
-
-    other = data.get("medicine_other", [])
-    other.append(text)
-    await state.update_data(medicine_other=other)
-
+    # Переходим сразу к Вопросу 6 (индекс 5)
+    await state.update_data(tags=tags, survey_step=5)
     await state.set_state(Form.survey)
     await message.answer(f"Записано: «{text}».")
     await send_question(message, state)
@@ -596,13 +662,17 @@ async def process_medicine(message: types.Message, state: FSMContext):
 
 @dp.message(StateFilter(Form.waiting_for_allergy))
 async def process_allergy(message: types.Message, state: FSMContext):
-    allergy_text = message.text.strip()
+    if not message.text:
+        await message.answer("Пожалуйста, напишите название аллергена текстом.")
+        return
+
+    allergy_text = message.text.strip()[:100]
 
     data = await state.get_data()
     tags = data.get("tags", [])
     tags.append(f"allergy_{allergy_text}")
 
-    await state.update_data(tags=tags)
+    await state.update_data(tags=tags, survey_step=6)
     await state.set_state(Form.survey)
     await message.answer(f"Записано: аллергия на «{allergy_text}». Учту это при анализе.")
     await send_question(message, state)
@@ -611,19 +681,10 @@ async def process_allergy(message: types.Message, state: FSMContext):
 async def finish_survey(message: types.Message, state: FSMContext):
     data = await state.get_data()
     tags = data.get("tags", [])
-
-    user_name = data.get("user_name")
-    if not user_name:
-        try:
-            user_name = db.get_user_name(message.chat.id)
-        except Exception:
-            user_name = None
-    if not user_name:
-        user_name = message.from_user.first_name or "Клиент"
-
-    await state.update_data(user_name=user_name)
-
     user_id = message.chat.id
+
+    user_name = data.get("user_name") or db.get_user_name(user_id) or "Клиент"
+    await state.update_data(user_name=user_name)
 
     db.update_user_tags(user_id, tags)
     if user_id not in UNLIMITED_IDS:
@@ -633,7 +694,6 @@ async def finish_survey(message: types.Message, state: FSMContext):
         logger.info(f"👑 Безлимит: карантин НЕ активирован для user_id={user_id}")
 
     await message.answer("📊 Диагностика завершена.")
-
     loading_msg = await message.answer("🔬 Анализирую ваши ответы...")
 
     try:
@@ -644,8 +704,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
 
     try:
         await loading_msg.edit_text(diagnosis)
-    except Exception as e:
-        logger.error(f"Не удалось отредактировать сообщение: {e}")
+    except Exception:
         await message.answer(diagnosis)
 
     await message.answer(
@@ -662,9 +721,12 @@ async def finish_survey(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "go_scanner")
 async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     user_id = callback.from_user.id
-    user = db.get_or_create_user(user_id)
+    user = db.get_or_create_user(user_id, callback.from_user.username)
 
     if user.get("survey_done", 0) == 0:
         await callback.message.answer(
@@ -690,7 +752,10 @@ async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.in_(["want_mariya_box", "no_care"]))
 async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
 
     text = (
         "▫️ <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного PDF-руководства. "
@@ -713,8 +778,11 @@ async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "back_to_scanner")
 async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    user = db.get_or_create_user(callback.from_user.id)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    user = db.get_or_create_user(callback.from_user.id, callback.from_user.username)
     if check_user_limits(callback.from_user.id, user):
         await callback.message.answer(
             "Какое уходовое средство вы хотите проверить?",
@@ -738,6 +806,7 @@ async def next_category_wash(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+    await state.set_state(Form.waiting_for_composition)
     await state.update_data(category="wash", photo_urls=[])
     await callback.message.answer(
         "🧼 Режим: *Смываемое средство*.\n\n"
@@ -753,6 +822,7 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+    await state.set_state(Form.waiting_for_composition)
     await state.update_data(category="care", photo_urls=[])
     await callback.message.answer(
         "🧴 Режим: *Несмываемое средство*.\n\n"
@@ -762,13 +832,23 @@ async def next_category_care(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@dp.callback_query(F.data == "clear_photos")
+async def clear_photos_callback(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(photo_urls=[])
+    try:
+        await callback.message.edit_text("🗑 Загруженные фото сброшены. Пришлите состав текстом или загрузите новое фото.")
+    except Exception:
+        await callback.message.answer("🗑 Загруженные фото сброшены. Пришлите состав текстом или загрузите новое фото.")
+    await callback.answer()
+
+
 @dp.message(StateFilter(Form.waiting_for_composition), F.photo)
 async def process_photo_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    user = db.get_or_create_user(user_id)
+    user = db.get_or_create_user(user_id, message.from_user.username)
 
     data = await state.get_data()
-    category_fsm = data.get("category", None)
+    category_fsm = data.get("category")
 
     if not category_fsm:
         await message.answer(
@@ -785,35 +865,44 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     photo = message.photo[-1]
     try:
         file = await bot.get_file(photo.file_id)
-        photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+        bio = io.BytesIO()
+        await bot.download_file(file.file_path, destination=bio)
+        b64_data = base64.b64encode(bio.getvalue()).decode("utf-8")
+        photo_data_url = f"data:image/jpeg;base64,{b64_data}"
     except Exception as e:
-        logger.error(f"Не удалось получить файл: {e}")
+        logger.error(f"Не удалось скачать и закодировать фото: {e}")
         await message.answer("❌ Не удалось загрузить фото. Попробуйте ещё раз.")
         return
 
     photo_urls = data.get("photo_urls", [])
     if not isinstance(photo_urls, list):
         photo_urls = []
-    photo_urls.append(photo_url)
+
+    if len(photo_urls) >= 4:
+        await message.answer(
+            "⚠️ Достигнут максимум (4 фото для одного средства). Нажмите «Анализировать».",
+            reply_markup=get_photo_actions_keyboard()
+        )
+        return
+
+    photo_urls.append(photo_data_url)
     await state.update_data(photo_urls=photo_urls)
 
     await message.answer(
         f"📸 Фото добавлено (всего: {len(photo_urls)}).\n\n"
-        f"Можете отправить ещё фото или нажмите «Анализировать».",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
-        ])
+        f"Можете отправить ещё ракурс или нажмите «Анализировать».",
+        reply_markup=get_photo_actions_keyboard()
     )
 
 
 @dp.callback_query(F.data == "analyze_photos")
 async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    user = db.get_or_create_user(user_id)
+    user = db.get_or_create_user(user_id, callback.from_user.username)
 
     data = await state.get_data()
     photo_urls = data.get("photo_urls", [])
-    category_fsm = data.get("category", None)
+    category_fsm = data.get("category")
 
     if not photo_urls:
         await callback.answer("Фото не найдены. Отправьте их ещё раз.", show_alert=True)
@@ -829,19 +918,16 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    user_name = await _resolve_user_name(callback.message, state, user)
+    await callback.answer("Запускаю анализ...")
+    user_name = await _resolve_user_name(callback.from_user, state)
+    category = "cleansing" if category_fsm == "wash" else "leave_on"
 
-    if category_fsm == "wash":
-        category = "cleansing"
-    else:
-        category = "leave_on"
-
-    loading_msg = await callback.message.answer("🔬 Анализирую фото состава...")
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
+    loading_msg = await callback.message.answer("🔬 Анализирую фото состава...")
     tags = user.get("tags", [])
 
     try:
@@ -850,22 +936,16 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
         status = result["status"]
 
         if status not in ANALYZABLE_STATUSES:
+            await state.update_data(photo_urls=[])
             await loading_msg.edit_text(
                 "⚠️ Фото не читается полностью.\n\n"
                 "Пожалуйста, сделайте более чёткое фото этикетки (при хорошем свете, "
-                "крупным планом, чтобы был виден весь список) или пришлите состав текстом.\n\n"
-                "Лимит не списан. Отправьте новое фото или нажмите «Анализировать» снова."
+                "крупным планом, чтобы был виден весь список до конца) или пришлите состав текстом.\n\n"
+                "Предыдущие фото сброшены, лимит не списан."
             )
-            await callback.message.answer(
-                "📸 Отправьте ещё фото (добавится к текущим) или нажмите «Анализировать» снова.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
-                ])
-            )
-            await callback.answer()
             return
 
-        db.save_analysis(user_id, f"[ФОТО x{len(photo_urls)}] {photo_urls[0]}", verdict, status)
+        db.save_analysis(user_id, f"[ФОТО x{len(photo_urls)}]", verdict, status)
 
         if status in ["bad", "hidden_threat"]:
             db.increment_bad_bottles(user_id)
@@ -886,7 +966,6 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
                 db.schedule_retention_notifications(user_id)
                 await send_paywall(callback.message)
                 await state.update_data(category=None, photo_urls=[])
-                await callback.answer()
                 return
         else:
             await loading_msg.edit_text(verdict)
@@ -903,28 +982,23 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
             "❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан."
         )
 
-    await callback.answer()
 
-
-@dp.message(StateFilter(Form.waiting_for_composition))
+@dp.message(StateFilter(Form.waiting_for_composition), F.text)
 async def process_composition(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    user = db.get_or_create_user(user_id)
+    user = db.get_or_create_user(user_id, message.from_user.username)
 
     data = await state.get_data()
 
     if data.get("photo_urls"):
         await message.answer(
-            "📸 У вас уже есть загруженные фото. Нажмите «Анализировать» или отправьте ещё фото.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
-            ])
+            "📸 У вас уже есть загруженные фото. Нажмите «Анализировать» или сбросьте их, чтобы отправить текст.",
+            reply_markup=get_photo_actions_keyboard()
         )
         return
 
-    user_name = await _resolve_user_name(message, state, user)
-
-    category_fsm = data.get("category", None)
+    user_name = await _resolve_user_name(message.from_user, state)
+    category_fsm = data.get("category")
 
     if not category_fsm:
         await message.answer(
@@ -938,12 +1012,8 @@ async def process_composition(message: types.Message, state: FSMContext):
         await send_paywall(message)
         return
 
-    if category_fsm == "wash":
-        category = "cleansing"
-    else:
-        category = "leave_on"
-
-    composition = message.text
+    category = "cleansing" if category_fsm == "wash" else "leave_on"
+    composition = message.text.strip()
     tags = user.get("tags", [])
 
     loading_msg = await message.answer("🔬 Анализирую состав...")
@@ -1082,6 +1152,9 @@ async def main():
         logger.info("✅ Описание бота обновлено")
     except Exception as e:
         logger.error(f"Не удалось обновить описание бота: {e}")
+
+    # Сбрасываем старые зависшие апдейты при старте на хостинге
+    await bot.delete_webhook(drop_pending_updates=True)
 
     asyncio.create_task(retention_worker())
     await dp.start_polling(bot)
