@@ -1,5 +1,7 @@
 import os
+import io
 import re
+import time
 import asyncio
 import logging
 import urllib.parse
@@ -16,6 +18,11 @@ from aiogram.types import (
 from dotenv import load_dotenv
 
 import database as db
+from ai_analyzer import (
+    validate_inci_before_llm,
+    extract_inci_from_image_bytes,
+    analyze_cosmetic_inci
+)
 
 load_dotenv()
 
@@ -45,6 +52,32 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 db.init_db()
+
+# =====================================================================
+# ЗАЩИТА ОТ ДВОЙНОГО КЛИКА (RACE CONDITION), АЛЬБОМОВ И ТРОТТЛИНГА
+# =====================================================================
+USER_SCAN_LOCKS: dict[int, asyncio.Lock] = {}
+USER_RATE_TIMESTAMPS: dict[int, list[float]] = {}
+HANDLED_MEDIA_GROUPS: dict[str, float] = {}
+
+
+def get_user_lock(user_id: int) -> asyncio.Lock:
+    if user_id not in USER_SCAN_LOCKS:
+        USER_SCAN_LOCKS[user_id] = asyncio.Lock()
+    return USER_SCAN_LOCKS[user_id]
+
+
+def check_rate_limit_3_per_min(user_id: int) -> bool:
+    """Блок 8, п. 1: Не более 3 запросов в минуту."""
+    now = time.time()
+    history = USER_RATE_TIMESTAMPS.get(user_id, [])
+    history = [t for t in history if now - t < 60.0]
+    if len(history) >= 3:
+        USER_RATE_TIMESTAMPS[user_id] = history
+        return False
+    history.append(now)
+    USER_RATE_TIMESTAMPS[user_id] = history
+    return True
 
 
 # =====================================================================
@@ -78,6 +111,19 @@ class SurveyStates(StatesGroup):
     q6 = State()
     waiting_for_allergy_text = State()
     waiting_for_inci = State()
+
+
+SURVEY_ACTIVE_STATES = {
+    SurveyStates.waiting_for_name.state,
+    SurveyStates.q1.state,
+    SurveyStates.q2.state,
+    SurveyStates.q3.state,
+    SurveyStates.q4.state,
+    SurveyStates.q5.state,
+    SurveyStates.waiting_for_medical_text.state,
+    SurveyStates.q6.state,
+    SurveyStates.waiting_for_allergy_text.state,
+}
 
 
 # =====================================================================
@@ -226,6 +272,38 @@ def get_step6_maria_keyboard(user_name: str, telegram_id: int) -> InlineKeyboard
         [InlineKeyboardButton(text="📦 Заказать Индивидуальный Бокс (от 9 000 ₽)", url=box_url)],
         [InlineKeyboardButton(text="💬 Задать вопрос Марии по PDF / Боксу", url=ask_url)],
     ])
+
+
+# =====================================================================
+# ТЕКСТОВЫЕ КОНСТАНТЫ ВОРОНКИ (ШАГИ 4, 5, 6 и ВАЛИДАЦИЯ)
+# =====================================================================
+WARMUP_AFTER_FIRST_SCAN_TEXT = (
+    "🤖 Роман Андреевич: В будущем вы сможете продолжить работу со мной в двух форматах:\n\n"
+    "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>\n"
+    "Безлимитный сканер составов. Жесткая фильтрация от скрытых угроз, комедогенных баз и маркетинговых пустышек.\n\n"
+    "💎 <b>СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
+    "• Интеллектуальная память: запомню все ваши средства.\n"
+    "• Архитектура: выстрою систему ухода без пробелов.\n"
+    "• Матрица безопасности: исключу химические конфликты и ожоги от агрессивных активов.\n"
+    "• Навигатор INCI: выдам точные названия рабочих компонентов для покупки.\n\n"
+    "🎁 Но у вас осталась еще 1 бесплатная попытка! Какую категорию проверим следующей?"
+)
+
+PAYWALL_MESSAGE_TEXT = (
+    "Бесплатный лимит исчерпан. По двум банкам архитектуру не выстроить, "
+    "а наносить непроверенные средства на вашу кожу сейчас небезопасно.\n\n"
+    "Выбирайте тариф ниже, и давайте соберем ваш идеальный уход:\n\n"
+    "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>: безлимитный сканер и поиск скрытых угроз.\n"
+    "💎 <b>СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>: моя интеллектуальная память, "
+    "контроль конфликтов и сборка безопасной базы.\n\n"
+    "Устали подбирать сами? Закажите Индивидуальный Бокс или PDF-протокол у создателя проекта, Марии:"
+)
+
+INVALID_INCI_TEXT = (
+    "Не удалось распознать полный список компонентов (INCI). Пожалуйста, убедитесь, что на фото четко виден "
+    "текст после слова Состав / Ingredients без обрезанных краев (либо скопируйте состав текстом из карточки товара). "
+    "Ваша попытка не списалась!"
+)
 
 
 # =====================================================================
@@ -589,7 +667,6 @@ async def finalize_survey_and_show_diagnosis(message: types.Message, user_id: in
     db.save_survey_results(user_id, tags, medical_note)
     await state.clear()
 
-    # Формируем хардкод-диагноз строго по Шагу 2 ТЗ
     paragraphs = []
     if "Медицина" in tags:
         paragraphs.append(
@@ -610,7 +687,6 @@ async def finalize_survey_and_show_diagnosis(message: types.Message, user_id: in
     diagnosis_text = "\n\n".join(paragraphs)
     await message.answer(diagnosis_text)
 
-    # Шаг 3. Развилка (Выбор пути)
     await message.answer(
         "Диагностика завершена. Теперь нам нужно выстроить безопасный физиологичный уход. "
         "Вы можете собрать его самостоятельно, проверяя каждое средство вместе со мной, Романом Андреевичем, "
@@ -620,19 +696,8 @@ async def finalize_survey_and_show_diagnosis(message: types.Message, user_id: in
 
 
 # =====================================================================
-# ШАГ 3 (ВЕТВЛЕНИЕ), ШАГ 4 (ВЕТКА А) и ШАГ 5 (ПЭЙВОЛ)
+# ШАГ 3 (ВЕТВЛЕНИЕ) И БЛОК 5 (ВЫБОР КАТЕГОРИИ СРЕДСТВА)
 # =====================================================================
-PAYWALL_MESSAGE_TEXT = (
-    "Бесплатный лимит исчерпан. По двум банкам архитектуру не выстроить, "
-    "а наносить непроверенные средства на вашу кожу сейчас небезопасно.\n\n"
-    "Выбирайте тариф ниже, и давайте соберем ваш идеальный уход:\n\n"
-    "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>: безлимитный сканер и поиск скрытых угроз.\n"
-    "💎 <b>СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>: моя интеллектуальная память, "
-    "контроль конфликтов и сборка безопасной базы.\n\n"
-    "Устали подбирать сами? Закажите Индивидуальный Бокс или PDF-протокол у создателя проекта, Марии:"
-)
-
-
 @dp.callback_query(F.data == "branch_roman")
 async def branch_roman_cb(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -641,14 +706,12 @@ async def branch_roman_cb(callback: types.CallbackQuery, state: FSMContext):
     free_used = user.get("free_scans_used", 0)
 
     if has_sub:
-        # Шаг 5.1: Платный режим
         await callback.message.answer(
-            "Доступ к лаборатории открыт! Присылайте составы текстом или фотографией этикетки. "
+            "Доступ к лаборатории открыт на 30 дней! Присылайте составы текстом или фотографией этикетки. "
             "Выберите категорию средства для проверки 👇",
             reply_markup=get_categories_keyboard()
         )
     elif free_used == 0:
-        # Шаг 4: Первая бесплатная попытка
         await callback.message.answer(
             "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня в деле. "
             "Прямо сейчас сфотографируйте состав на вашей баночке (или сделайте скриншот состава на маркетплейсе) "
@@ -656,13 +719,11 @@ async def branch_roman_cb(callback: types.CallbackQuery, state: FSMContext):
             reply_markup=get_categories_keyboard()
         )
     elif free_used == 1:
-        # Вторая бесплатная попытка
         await callback.message.answer(
-            "🎁 У вас осталась еще 1 бесплатная попытка! Выберите категорию средства для проверки 👇",
+            "🎁 Но у вас осталась еще 1 бесплатная попытка! Какую категорию проверим следующей?",
             reply_markup=get_categories_keyboard()
         )
     else:
-        # Шаг 5: Бесплатный лимит исчерпан (>= 2) -> Пэйвол
         await callback.message.answer(
             PAYWALL_MESSAGE_TEXT,
             reply_markup=get_paywall_keyboard(),
@@ -671,12 +732,50 @@ async def branch_roman_cb(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# =====================================================================
-# БЛОК 5. ВЫБОР КАТЕГОРИИ СРЕДСТВА (UI)
-# =====================================================================
 @dp.callback_query(F.data.startswith("cat:"))
 async def select_category_cb(callback: types.CallbackQuery, state: FSMContext):
     category = callback.data.split(":")[1]
+    user_id = callback.from_user.id
+    user = db.get_or_create_user(user_id, callback.from_user.username)
+
+    if user.get("survey_done", 0) == 0:
+        await callback.message.answer(
+            "Пожалуйста, сначала завершите короткую диагностику кожи 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="СТАРТ", callback_data="start_diagnostics")]
+            ])
+        )
+        await callback.answer()
+        return
+
+    has_sub, _ = db.has_active_scanner_sub(user_id)
+    if not has_sub and user.get("free_scans_used", 0) >= 2:
+        await callback.message.answer(
+            PAYWALL_MESSAGE_TEXT,
+            reply_markup=get_paywall_keyboard(),
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    pending_inci = data.get("pending_inci")
+
+    await callback.answer()
+
+    # Блок 8, п. 4: Если в буфере уже лежит распознанный состав — сразу запускаем анализ!
+    if pending_inci:
+        await state.update_data(pending_inci=None, selected_category=None)
+        await state.clear()
+        await execute_scan_with_lock(
+            message=callback.message,
+            user_id=user_id,
+            username=callback.from_user.username,
+            category=category,
+            raw_inci_text=pending_inci
+        )
+        return
+
     await state.update_data(selected_category=category)
     await state.set_state(SurveyStates.waiting_for_inci)
 
@@ -684,7 +783,339 @@ async def select_category_cb(callback: types.CallbackQuery, state: FSMContext):
         "Категория выбрана. Отправьте фотографию состава (четкое фото этикетки или скриншот из интернет-магазина) "
         "либо пришлите список компонентов (INCI) текстом 👇"
     )
-    await callback.answer()
+
+
+# =====================================================================
+# ЭТАП 5 и 6: ЯДРО СКАНЕРА (ТЕКСТ + ФОТО + БУФЕР + LOCK + FAIR USE)
+# =====================================================================
+
+async def _ensure_user_can_scan(message: types.Message, user_id: int, username: str, state: FSMContext) -> bool:
+    """
+    Проверяет:
+    1) Завершена ли анкета (если нет — возвращает к анкете).
+    2) Есть ли доступ (активная подписка ИЛИ free_scans_used < 2). Если нет — выводит Пэйвол (Шаг 5).
+    3) Не превышен ли дневной/месячный Fair Use лимит (40 в день / 500 в месяц).
+    """
+    user = db.get_or_create_user(user_id, username)
+    current_state = await state.get_state()
+
+    if user.get("survey_done", 0) == 0:
+        if current_state in SURVEY_ACTIVE_STATES:
+            await message.answer("Пожалуйста, ответьте на текущий вопрос анкеты выше ☝️")
+        else:
+            await message.answer(
+                "Чтобы я мог проанализировать состав под вашу кожу, сначала пройдите короткую диагностику 👇",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="СТАРТ", callback_data="start_diagnostics")]
+                ])
+            )
+        return False
+
+    has_sub, _ = db.has_active_scanner_sub(user_id)
+    if not has_sub and user.get("free_scans_used", 0) >= 2:
+        await message.answer(
+            PAYWALL_MESSAGE_TEXT,
+            reply_markup=get_paywall_keyboard(),
+            parse_mode="HTML"
+        )
+        return False
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    scans_today = user.get("scans_today", 0) if user.get("last_scan_date") == today_str else 0
+    if scans_today >= 40:
+        await message.answer(
+            "Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿"
+        )
+        return False
+
+    if (user.get("scans_month") or 0) >= 500:
+        await message.answer(
+            "Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿"
+        )
+        return False
+
+    return True
+
+
+async def execute_scan_with_lock(
+    message: types.Message,
+    user_id: int,
+    username: str,
+    category: str,
+    raw_inci_text: str
+):
+    """
+    Выполняет вызов Claude Sonnet под защитой asyncio.Lock, проверяет статус ответа,
+    сохраняет средство в approved_products и отправляет результат + следующий шаг воронки.
+    """
+    lock = get_user_lock(user_id)
+    if lock.locked():
+        await message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
+        return
+
+    async with lock:
+        if not check_rate_limit_3_per_min(user_id):
+            await message.answer("⏳ Слишком много запросов подряд. Подождите 15–20 секунд и отправьте состав снова.")
+            return
+
+        user = db.get_or_create_user(user_id, username)
+        has_sub, tariff = db.has_active_scanner_sub(user_id)
+
+        if not has_sub and user.get("free_scans_used", 0) >= 2:
+            await message.answer(
+                PAYWALL_MESSAGE_TEXT,
+                reply_markup=get_paywall_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+
+        wait_msg = await message.answer("🔬 Провожу химический аудит состава...")
+
+        is_protocol = (has_sub and tariff == "protocol_2500")
+        routine_text = db.format_approved_routine_for_llm(user_id) if is_protocol else "Пока нет сохраненных средств."
+        user_name = user.get("user_name") or "Клиент"
+        user_tags = user.get("user_tags", [])
+
+        result = await analyze_cosmetic_inci(
+            user_name=user_name,
+            user_tags=user_tags,
+            category=category,
+            raw_inci_text=raw_inci_text,
+            is_protocol_tariff=is_protocol,
+            approved_routine_text=routine_text
+        )
+
+        status_emoji = result.get("status_emoji")
+        clean_text = result.get("text_for_user", "")
+
+        # Блок 8, п. 3, Шаг Г: Если отсутствует цветовой маркер — попытка НЕ списывается!
+        if not status_emoji:
+            try:
+                await wait_msg.edit_text(clean_text or INVALID_INCI_TEXT)
+            except Exception:
+                await message.answer(clean_text or INVALID_INCI_TEXT)
+            return
+
+        # Списываем попытку и проверяем Fair Use
+        allowed, reason = db.check_and_increment_scan_usage(user_id, is_paid_sub=has_sub)
+        if not allowed:
+            try:
+                await wait_msg.delete()
+            except Exception:
+                pass
+            if reason in ("daily_limit", "monthly_limit"):
+                await message.answer(
+                    "Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿"
+                )
+            else:
+                await message.answer(
+                    PAYWALL_MESSAGE_TEXT,
+                    reply_markup=get_paywall_keyboard(),
+                    parse_mode="HTML"
+                )
+            return
+
+        # Сохраняем средство в таблицу approved_products (если 🟢/🔵/🟡 и не тело)
+        record_id = None
+        if result.get("should_save_to_db"):
+            record_id = db.add_approved_product(
+                telegram_id=user_id,
+                category=category,
+                status=status_emoji,
+                stage=result["stage"],
+                key_actives=result["key_actives"]
+            )
+
+        try:
+            await wait_msg.delete()
+        except Exception:
+            pass
+
+        # Маршрутизация ответа в зависимости от тарифа и номера бесплатной попытки
+        updated_user = db.get_user(user_id)
+        free_used_now = updated_user.get("free_scans_used", 0)
+
+        if has_sub:
+            # Шаг 5.1: Платный режим
+            extra_btn = None
+            if is_protocol and record_id is not None:
+                extra_btn = InlineKeyboardButton(
+                    text="🗑 Я только смотрю в магазине (Не добавлять в мой уход)",
+                    callback_data=f"remove_item:{record_id}"
+                )
+            await message.answer(
+                clean_text,
+                reply_markup=get_categories_keyboard(extra_top_button=extra_btn)
+            )
+        else:
+            # Бесплатный режим (Ветка А)
+            await message.answer(clean_text)
+
+            if free_used_now == 1:
+                # Шаг 4: Прогрев после ПЕРВОЙ банки + 4 кнопки категорий
+                await message.answer(
+                    WARMUP_AFTER_FIRST_SCAN_TEXT,
+                    reply_markup=get_categories_keyboard(),
+                    parse_mode="HTML"
+                )
+            else:
+                # Шаг 5: Жесткий Пэйвол после ВТОРОЙ банки
+                await message.answer(
+                    PAYWALL_MESSAGE_TEXT,
+                    reply_markup=get_paywall_keyboard(),
+                    parse_mode="HTML"
+                )
+
+
+# --- ПРИЕМ ФОТОГРАФИЙ (БЛОК 8, п. 3 и п. 4) ---
+@dp.message(F.photo)
+async def handle_photo_message(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.username
+    current_state = await state.get_state()
+
+    # Если пользователь внутри вопроса анкеты — просим ответить на вопрос
+    if current_state in SURVEY_ACTIVE_STATES:
+        await message.answer("Пожалуйста, завершите ответ на вопрос анкеты (текстом или кнопкой выше) ☝️")
+        return
+
+    # Блок 8, п. 3, Шаг А: Фильтр медиагрупп (альбомов из нескольких фото)
+    if message.media_group_id is not None:
+        now = time.time()
+        mg_id = str(message.media_group_id)
+        # Очищаем старые записи медиагрупп
+        for k in list(HANDLED_MEDIA_GROUPS.keys()):
+            if now - HANDLED_MEDIA_GROUPS[k] > 30:
+                del HANDLED_MEDIA_GROUPS[k]
+        if mg_id in HANDLED_MEDIA_GROUPS:
+            return
+        HANDLED_MEDIA_GROUPS[mg_id] = now
+        await message.answer(
+            "Пожалуйста, отправляйте строго по одной фотографии за раз, чтобы я проверил каждое средство отдельно. "
+            "Ваша попытка сохранена."
+        )
+        return
+
+    lock = get_user_lock(user_id)
+    if lock.locked():
+        await message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
+        return
+
+    if not await _ensure_user_can_scan(message, user_id, username, state):
+        return
+
+    data = await state.get_data()
+    selected_category = data.get("selected_category")
+
+    # Выполняем легкий OCR под блокировкой, чтобы не было гонки запросов
+    async with lock:
+        ocr_msg = await message.answer("🔍 Считываю текст состава с фотографии...")
+        try:
+            photo = message.photo[-1]
+            file_info = await bot.get_file(photo.file_id)
+            bio = io.BytesIO()
+            await bot.download_file(file_info.file_path, destination=bio)
+            extracted_inci = await extract_inci_from_image_bytes(bio.getvalue())
+        except Exception as e:
+            logger.error(f"Ошибка загрузки фото для OCR: {e}")
+            extracted_inci = "NO_INCI_FOUND"
+
+        try:
+            await ocr_msg.delete()
+        except Exception:
+            pass
+
+        # Блок 8, п. 3, Шаг В: Бесплатная валидация текста ДО вызова Claude Sonnet
+        if not validate_inci_before_llm(extracted_inci):
+            await message.answer(INVALID_INCI_TEXT)
+            return
+
+        # Блок 8, п. 4: Если категория еще не выбрана — сохраняем в буфер pending_inci
+        if not selected_category:
+            await state.update_data(pending_inci=extracted_inci)
+            await message.answer(
+                "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
+                reply_markup=get_categories_keyboard()
+            )
+            return
+
+    # Если категория уже была выбрана — очищаем состояние и запускаем Claude Sonnet
+    await state.update_data(selected_category=None, pending_inci=None)
+    await state.clear()
+    await execute_scan_with_lock(
+        message=message,
+        user_id=user_id,
+        username=username,
+        category=selected_category,
+        raw_inci_text=extracted_inci
+    )
+
+
+# --- ПРИЕМ НЕПОДДЕРЖИВАЕМЫХ ТИПОВ ФАЙЛОВ (БЛОК 8, п. 3, Шаг А) ---
+@dp.message(F.video | F.voice | F.sticker | F.document | F.audio | F.video_note | F.animation)
+async def handle_unsupported_media(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state in SURVEY_ACTIVE_STATES:
+        await message.answer("Пожалуйста, введите ответ текстом или выберите кнопку выше.")
+        return
+
+    await message.answer(
+        "Отправьте обычную фотографию состава (или скриншот) либо скопируйте список ингредиентов текстом. "
+        "Попытка сохранена."
+    )
+
+
+# --- ПРИЕМ ТЕКСТА СОСТАВА INCI (В РЕЖИМЕ ОЖИДАНИЯ ИЛИ ЧЕРЕЗ СКВОЗНОЙ БУФЕР) ---
+@dp.message(F.text)
+async def handle_text_inci_or_buffer(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = message.from_user.username
+    current_state = await state.get_state()
+
+    # Если юзер находится на шаге анкеты с кнопками (q1..q6) и пишет текст руками
+    if current_state in {
+        SurveyStates.q1.state, SurveyStates.q2.state, SurveyStates.q3.state,
+        SurveyStates.q4.state, SurveyStates.q5.state, SurveyStates.q6.state
+    }:
+        await message.answer("Пожалуйста, выберите вариант ответа с помощью кнопок под вопросом ☝️")
+        return
+
+    lock = get_user_lock(user_id)
+    if lock.locked():
+        await message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
+        return
+
+    if not await _ensure_user_can_scan(message, user_id, username, state):
+        return
+
+    raw_text = message.text.strip()
+
+    # Блок 8, п. 3, Шаг В: Бесплатная проверка текста кодом ДО вызова Claude Sonnet
+    if not validate_inci_before_llm(raw_text):
+        await message.answer(INVALID_INCI_TEXT)
+        return
+
+    data = await state.get_data()
+    selected_category = data.get("selected_category")
+
+    # Блок 8, п. 4: Если пользователь прислал состав без предварительного выбора категории
+    if not selected_category:
+        await state.update_data(pending_inci=raw_text)
+        await message.answer(
+            "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
+            reply_markup=get_categories_keyboard()
+        )
+        return
+
+    await state.update_data(selected_category=None, pending_inci=None)
+    await state.clear()
+    await execute_scan_with_lock(
+        message=message,
+        user_id=user_id,
+        username=username,
+        category=selected_category,
+        raw_inci_text=raw_text
+    )
 
 
 # =====================================================================
@@ -823,7 +1254,6 @@ async def remove_item_after_scan_cb(callback: types.CallbackQuery):
     record_id = int(callback.data.split(":")[1])
     db.remove_approved_product(record_id, callback.from_user.id)
 
-    # Меняем первую кнопку на подтверждение удаления, оставляя 4 категории ниже
     confirmed_btn = InlineKeyboardButton(text="✅ Средство удалено из вашей схемы", callback_data="noop")
     try:
         await callback.message.edit_reply_markup(reply_markup=get_categories_keyboard(extra_top_button=confirmed_btn))
@@ -875,7 +1305,7 @@ async def setup_bot_commands():
 
 
 async def main():
-    logger.info("🚀 Бот (Этап 2: Каркас и Анкета) запущен!")
+    logger.info("🚀 Бот (Этапы 5 и 6: Сканер + OCR + Пэйвол + Защита) запущен!")
     try:
         await setup_bot_commands()
     except Exception as e:
