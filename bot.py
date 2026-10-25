@@ -1,35 +1,36 @@
 import os
-import io
-import re
-import time
 import asyncio
 import logging
 import urllib.parse
-from datetime import datetime
+import re
+import base64
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types, BaseMiddleware
-from aiogram.filters import CommandStart, Command, StateFilter
+from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
     InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 )
 from dotenv import load_dotenv
 
 import database as db
 from ai_analyzer import (
-    validate_inci_before_llm,
-    extract_inci_from_image_bytes,
-    analyze_cosmetic_inci
+    analyze_composition,
+    extract_text_from_photos,
+    _translate_tags
 )
 
 load_dotenv()
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 ADMIN_ID = int(os.getenv("ADMIN_ID", MARIYA_ID))
+
+UNLIMITED_IDS = [MARIYA_ID, OWNER_ID, 1962088357, 5858622813]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
@@ -41,10 +42,7 @@ MARIYA_USERNAME = "miroslavskayaboks"
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN)
@@ -53,27 +51,74 @@ dp = Dispatcher(storage=storage)
 
 db.init_db()
 
-USER_SCAN_LOCKS: dict[int, asyncio.Lock] = {}
-USER_RATE_TIMESTAMPS: dict[int, list[float]] = {}
-HANDLED_MEDIA_GROUPS: dict[str, float] = {}
+
+def sanitize_input(text: str, max_len: int = 2000) -> str:
+    if not text:
+        return ""
+    text = re.sub(r'[\[\]\{\}<>]', '', text)
+    text = re.sub(r'[\n\r]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:max_len]
 
 
-def get_user_lock(user_id: int) -> asyncio.Lock:
-    if user_id not in USER_SCAN_LOCKS:
-        USER_SCAN_LOCKS[user_id] = asyncio.Lock()
-    return USER_SCAN_LOCKS[user_id]
+def sanitize_name(text: str) -> str:
+    if not text:
+        return ""
+    text = re.sub(r'[^\w\s\-]', '', text, flags=re.UNICODE)
+    text = re.sub(r'[\d_]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:30]
 
 
-def check_rate_limit_3_per_min(user_id: int) -> bool:
-    now = time.time()
-    history = USER_RATE_TIMESTAMPS.get(user_id, [])
-    history = [t for t in history if now - t < 60.0]
-    if len(history) >= 3:
-        USER_RATE_TIMESTAMPS[user_id] = history
+def validate_inci_text(text: str) -> bool:
+    if not text or text == "NO_INCI_FOUND":
         return False
-    history.append(now)
-    USER_RATE_TIMESTAMPS[user_id] = history
+    if len(text) < 25:
+        return False
+    text_lower = text.lower()
+    bad_links = ["http", "https", "t.me", "wildberries", "ozon", "goldapple"]
+    if any(link in text_lower for link in bad_links):
+        return False
+    delimiters = text.count(',') + text.count(';') + text.count('/') + text.count('.') + text.count('•')
+    if delimiters < 2:
+        return False
     return True
+
+
+async def safe_delete(message: types.Message):
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+def _escape_html(text: str) -> str:
+    if not text:
+        return ""
+    return (str(text)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;"))
+
+
+async def download_photo_as_base64(photo: types.PhotoSize):
+    try:
+        file = await bot.get_file(photo.file_id)
+        buf = await bot.download_file(file.file_path)
+        data = buf.read()
+        return base64.b64encode(data).decode("utf-8")
+    except Exception as e:
+        logger.error(f"Не удалось скачать фото: {e}")
+        return None
+
+
+user_locks = {}
+
+
+def get_user_lock(user_id):
+    if user_id not in user_locks:
+        user_locks[user_id] = asyncio.Lock()
+    return user_locks[user_id]
 
 
 class ActivityMiddleware(BaseMiddleware):
@@ -89,176 +134,89 @@ class ActivityMiddleware(BaseMiddleware):
 dp.message.middleware(ActivityMiddleware())
 dp.callback_query.middleware(ActivityMiddleware())
 
+ANALYZABLE_STATUSES = {"bad", "hidden_threat", "conditional", "good", "neutral", "hydrophilic"}
 
-class SurveyStates(StatesGroup):
+
+class Form(StatesGroup):
     waiting_for_name = State()
-    q1 = State()
-    q2 = State()
-    q3 = State()
-    q4 = State()
-    q5 = State()
-    waiting_for_medical_text = State()
-    q6 = State()
-    waiting_for_allergy_text = State()
-    waiting_for_inci = State()
+    survey = State()
+    waiting_for_medicine = State()
+    waiting_for_allergy = State()
+    waiting_for_composition = State()
+    waiting_for_category = State()
 
 
-SURVEY_ACTIVE_STATES = {
-    SurveyStates.waiting_for_name.state,
-    SurveyStates.q1.state,
-    SurveyStates.q2.state,
-    SurveyStates.q3.state,
-    SurveyStates.q4.state,
-    SurveyStates.q5.state,
-    SurveyStates.waiting_for_medical_text.state,
-    SurveyStates.q6.state,
-    SurveyStates.waiting_for_allergy_text.state,
-}
+def check_user_limits(user: dict) -> bool:
+    if user["telegram_id"] in UNLIMITED_IDS:
+        return True
+    if db.has_active_subscription(user):
+        return True
+    if user.get("free_scans_used", 0) < 2:
+        return True
+    return False
 
 
-def sanitize_user_name(text: str) -> str:
-    if not text:
-        return ""
-    cleaned = re.sub(r"[<>\[\]\{\}]", "", text)
-    cleaned = re.sub(r"[^a-zA-Zа-яА-ЯёЁ\s\-]", "", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned[:30]
+def get_user_tariff(user: dict) -> str:
+    if user["telegram_id"] in UNLIMITED_IDS:
+        return "protocol"
+    if db.has_active_subscription(user):
+        return "protocol" if user["scanner_tariff"] == "protocol_2500" else "audit"
+    return "free"
 
 
-def sanitize_short_input(text: str, max_len: int = 100) -> str:
-    if not text:
-        return ""
-    cleaned = re.sub(r"[<>\[\]\{\}\r\n]+", " ", text)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned[:max_len]
+def get_mode_keyboard():
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="🤖 Собрать уход с Романом")],
+        [KeyboardButton(text="📝 Забрать уход от Марии")]
+    ], resize_keyboard=True)
 
 
-Q1_OPTIONS = [
-    ("Акне / активные воспаления", "Проблемная"),
-    ("Закрытые комедоны / бугорки", "Проблемная"),
-    ("Сильная жирность днем", "Себопрофицит"),
-    ("Черные точки / поры", "Расширенные поры"),
-    ("Сухость / стянутость", "Сухость"),
-    ("Шелушения", "Шелушения"),
-    ("Пигментация / постакне", "Пигментация"),
-    ("Морщины / потеря тонуса", "Возрастные изменения"),
-    ("Покраснения / купероз", "Купероз и покраснения"),
-    ("Ничего не беспокоит", "EXCLUSIVE_NONE"),
-]
-
-Q2_OPTIONS = [
-    ("Комфортно, не стягивает", None),
-    ("Терпимо, хочется нанести крем", None),
-    ("Сильно стягивает («пергамент»)", "Сломан барьер"),
-    ("Сразу блестит от жирности", "Себопрофицит"),
-]
-
-Q3_OPTIONS = [
-    ("Нормально (без сухости и блеска)", None),
-    ("Блестит только Т-зона", None),
-    ("Сильно блестит всё лицо", "CONDITIONAL_SHINE"),
-    ("Сохнет / шелушится", "Сломан барьер"),
-]
-
-Q4_OPTIONS = [
-    ("Спокойная (редко краснеет)", None),
-    ("Слегка чувствительная", None),
-    ("Реактивная (горит, краснеет)", "Реактивность"),
-]
-
-Q5_OPTIONS = [
-    ("Аптечные мази (Скинорен и др.)", "Реактивность"),
-    ("Гормональные нарушения", "Медицина"),
-    ("Кожные заболевания (розацеа и др.)", "Медицина"),
-    ("Беременность / лактация", "Беременность"),
-    ("Ничего из перечисленного", "EXCLUSIVE_NONE"),
-    ("Другое", "OTHER_MED"),
-]
-
-
-def build_q1_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
-    buttons = []
-    for idx, (label, _) in enumerate(Q1_OPTIONS):
-        mark = "✅ " if idx in selected_indices else ""
-        buttons.append([InlineKeyboardButton(text=f"{mark}{label}", callback_data=f"q1_toggle:{idx}")])
-    buttons.append([InlineKeyboardButton(text="Далее ➔", callback_data="q1_next")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def build_single_choice_keyboard(options: list, prefix: str, show_back: bool = True) -> InlineKeyboardMarkup:
-    buttons = []
-    for idx, (label, _) in enumerate(options):
-        buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}:{idx}")])
-    if show_back:
-        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_to_{prefix}")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def build_q5_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
-    buttons = []
-    for idx, (label, _) in enumerate(Q5_OPTIONS):
-        mark = "✅ " if idx in selected_indices else ""
-        buttons.append([InlineKeyboardButton(text=f"{mark}{label}", callback_data=f"q5_toggle:{idx}")])
-    buttons.append([
-        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_q4"),
-        InlineKeyboardButton(text="Далее ➔", callback_data="q5_next")
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def build_q6_keyboard() -> InlineKeyboardMarkup:
+def get_category_4_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Нет, аллергии нет", callback_data="q6:no")],
-        [InlineKeyboardButton(text="Да, есть", callback_data="q6:yes")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_q5")]
+        [InlineKeyboardButton(text="🫧 Смываемое (умывалки, гидрофильное масло)", callback_data="cat_wash")],
+        [InlineKeyboardButton(text="🧴 Несмываемое (тоники, сыворотки, кремы, SPF)", callback_data="cat_care")],
+        [InlineKeyboardButton(text="👁 Уход для век (кремы и сыворотки)", callback_data="cat_eyes")],
+        [InlineKeyboardButton(text="🦵 Уход для тела (гели, лосьоны, кремы)", callback_data="cat_body")],
     ])
 
 
-def get_categories_keyboard(extra_top_button: InlineKeyboardButton = None) -> InlineKeyboardMarkup:
-    rows = []
-    if extra_top_button:
-        rows.append([extra_top_button])
-    rows.extend([
-        [InlineKeyboardButton(text="🫧 Смываемое (умывалки, гидрофильное масло)", callback_data="cat:wash")],
-        [InlineKeyboardButton(text="🧴 Несмываемое (тоники, сыворотки, кремы, SPF)", callback_data="cat:care")],
-        [InlineKeyboardButton(text="👁 Уход для век (кремы и сыворотки)", callback_data="cat:eyes")],
-        [InlineKeyboardButton(text="🦵 Уход для тела (гели, лосьоны, кремы)", callback_data="cat:body")],
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def get_step3_fork_keyboard() -> InlineKeyboardMarkup:
+def get_start_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Собрать уход с Романом", callback_data="branch_roman")],
-        [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="branch_maria:1")],
-        [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="branch_maria:2")],
+        [InlineKeyboardButton(text="СТАРТ", callback_data="start_diagnostics")]
     ])
 
 
-def get_paywall_keyboard() -> InlineKeyboardMarkup:
+def get_path_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="buy:audit_1000")],
-        [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="buy:protocol_2500")],
-        [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="branch_maria:1")],
+        [InlineKeyboardButton(text="🛒 Собрать уход с Романом", callback_data="go_scanner")],
+        [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
+        [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
     ])
 
 
-def get_step6_maria_keyboard(user_name: str, telegram_id: int) -> InlineKeyboardMarkup:
-    safe_name = user_name or "Клиент"
-    box_text = f"Привет, хочу Индивидуальный Бокс (от 9 000 ₽)! Меня зовут: {safe_name}. Код анкеты: #{telegram_id}"
-    ask_text = f"Привет! Хочу проконсультироваться по поводу Персонального PDF-протокола / Бокса. Меня зовут: {safe_name}. Код анкеты: #{telegram_id}"
+def get_mariya_payment_keyboard(user_name: str, user_id: int):
+    text_box = f"Привет, хочу Индивидуальный Бокс (от 9 000 ₽)! Меня зовут: {user_name}. Код анкеты: #{user_id}"
+    text_q = f"Привет! Хочу проконсультироваться по поводу Персонального PDF-протокола / Бокса. Меня зовут: {user_name}. Код анкеты: #{user_id}"
 
-    box_url = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(box_text)}"
-    ask_url = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(ask_text)}"
+    url_box = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_box)}"
+    url_q = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_q)}"
 
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оплатить PDF-протокол — 4 900 ₽", callback_data="buy:pdf_4900")],
-        [InlineKeyboardButton(text="📦 Заказать Индивидуальный Бокс (от 9 000 ₽)", url=box_url)],
-        [InlineKeyboardButton(text="💬 Задать вопрос Марии по PDF / Боксу", url=ask_url)],
+        [InlineKeyboardButton(text="💳 Оплатить PDF-протокол — 4 900 ₽", callback_data="pay_pdf_4900")],
+        [InlineKeyboardButton(text="📦 Заказать Индивидуальный Бокс (от 9 000 ₽)", url=url_box)],
+        [InlineKeyboardButton(text="💬 Задать вопрос Марии по PDF / Боксу", url=url_q)]
     ])
 
 
-WARMUP_AFTER_FIRST_SCAN_TEXT = (
+PAYWALL_TEXT = (
+    "Бесплатный лимит исчерпан. По двум банкам архитектуру не выстроить, а наносить непроверенные средства на вашу кожу сейчас небезопасно.\n\n"
+    "Выбирайте тариф ниже, и давайте соберем ваш идеальный уход:\n\n"
+    "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>: безлимитный сканер и поиск скрытых угроз.\n"
+    "💎 <b>СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>: моя интеллектуальная память, контроль конфликтов и сборка безопасной базы.\n\n"
+    "Устали подбирать сами? Закажите Индивидуальный Бокс или PDF-протокол у создателя проекта, Марии:"
+)
+
+WARMUP_TEXT = (
     "🤖 Роман Андреевич: В будущем вы сможете продолжить работу со мной в двух форматах:\n\n"
     "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>\n"
     "Безлимитный сканер составов. Жесткая фильтрация от скрытых угроз, комедогенных баз и маркетинговых пустышек.\n\n"
@@ -270,1188 +228,1684 @@ WARMUP_AFTER_FIRST_SCAN_TEXT = (
     "🎁 Но у вас осталась еще 1 бесплатная попытка! Какую категорию проверим следующей?"
 )
 
-PAYWALL_MESSAGE_TEXT = (
-    "Бесплатный лимит исчерпан. По двум банкам архитектуру не выстроить, "
-    "а наносить непроверенные средства на вашу кожу сейчас небезопасно.\n\n"
-    "Выбирайте тариф ниже, и давайте соберем ваш идеальный уход:\n\n"
-    "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>: безлимитный сканер и поиск скрытых угроз.\n"
-    "💎 <b>СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>: моя интеллектуальная память, "
-    "контроль конфликтов и сборка безопасной базы.\n\n"
-    "Устали подбирать сами? Закажите Индивидуальный Бокс или PDF-протокол у создателя проекта, Марии:"
-)
 
-INVALID_INCI_TEXT = (
-    "Не удалось распознать полный список компонентов (INCI). Пожалуйста, убедитесь, что на фото четко виден "
-    "текст после слова Состав / Ingredients без обрезанных краев (либо скопируйте состав текстом из карточки товара). "
-    "Ваша попытка не списалась!"
-)
+async def send_paywall(message: types.Message):
+    await message.answer(
+        PAYWALL_TEXT,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+        ]),
+        parse_mode="HTML"
+    )
 
-MARIA_PRODUCTS_DESCRIPTION = (
+
+SURVEY_QUESTIONS = [
+    {
+        "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
+        "options": [
+            ("Акне / активные воспаления", "problem"),
+            ("Закрытые комедоны / бугорки", "problem"),
+            ("Сильная жирность днем", "seboprofit"),
+            ("Черные точки / поры", "pores"),
+            ("Сухость / стянутость", "dry"),
+            ("Шелушения", "peeling"),
+            ("Пигментация / постакне", "pigment"),
+            ("Морщины / потеря тонуса", "age"),
+            ("Покраснения / купероз", "couperose"),
+            ("Ничего не беспокоит", "normal"),
+        ],
+        "multi": True,
+    },
+    {
+        "text": "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
+        "options": [
+            ("Комфортно, не стягивает", "none"),
+            ("Терпимо, хочется нанести крем", "none"),
+            ("Сильно стягивает («пергамент»)", "barrier_broken"),
+            ("Сразу блестит от жирности", "seboprofit"),
+        ],
+        "multi": False,
+    },
+    {
+        "text": "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
+        "options": [
+            ("Нормально (без сухости и блеска)", "none"),
+            ("Блестит только Т-зона", "none"),
+            ("Сильно блестит всё лицо", "CONDITIONAL_BLINK"),
+            ("Сохнет / шелушится", "barrier_broken"),
+        ],
+        "multi": False,
+    },
+    {
+        "text": "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям?",
+        "options": [
+            ("Спокойная (редко краснеет)", "none"),
+            ("Слегка чувствительная", "none"),
+            ("Реактивная (горит, краснеет)", "reactive"),
+        ],
+        "multi": False,
+    },
+    {
+        "text": "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько)",
+        "options": [
+            ("Аптечные мази (Скинорен и др.)", "reactive"),
+            ("Гормональные нарушения", "medicine"),
+            ("Кожные заболевания (розацеа и др.)", "medicine"),
+            ("Беременность / лактация", "pregnancy"),
+            ("Ничего из перечисленного", "normal_exclusive"),
+            ("Другое", "medicine_other"),
+        ],
+        "multi": True,
+    },
+    {
+        "text": "Вопрос 6. Известная аллергия на компоненты?",
+        "options": [
+            ("Нет, аллергии нет", "no_allergy"),
+            ("Да, есть", "has_allergy"),
+        ],
+        "multi": False,
+    },
+]
+
+RETENTION_TEXTS = {
+    "2h": "🤖 {user_name}, вы остановились на этапе активации. Ваша анкета сохранена. Чтобы я мог завершить химический анализ вашего ухода и выстроить протокол безопасности, необходимо завершить оформление. Я готов приступить к работе.",
+    "24h": "🤖 Прошли сутки с момента паузы. Напоминаю, что каждый день использования неподходящей косметики усугубляет состояние барьера. Если в ваших баночках есть скрытые угрозы, вы наносите их прямо сейчас. Давайте остановим этот процесс. Открываем доступ?",
+    "48h": "🤖 Я технически закрываю ваш незаконченный сеанс. Данные заархивированы. Если решите навести порядок в уходе, перестать тратить деньги на агрессивные средства и доверить сборку системы алгоритму — возвращайтесь.",
+    "5d": "🤖 {user_name}, наверняка вы снова смотрели на косметику на маркетплейсах. Красивые обещания часто маскируют дешевую базу и пустышки. Не покупайте новые средства вслепую. Загрузите составы мне перед оплатой, и я уберегу вас от пустой траты денег.",
+    "7d": "🤖 Прошла неделя. За это время вы нанесли свой привычный уход минимум 14 раз. Если мы не исключили из вашей системы жесткие ПАВы или конфликтные активы, вы значительно усилили дефицит липидов. Доступ к системе ждет активации.",
+    "10d": "🤖 {user_name}, алгоритмы соцсетей продолжают продавать вам «волшебные» банки. Блогеры рекомендуют агрессивные активы, не зная вашей физиологии. Прежде чем оплатить корзину — пропустите состав через мою матрицу безопасности.",
+    "14d": "🤖 {user_name}, если у вас нет времени самостоятельно сканировать каждый состав — снимите с себя эту задачу. Создатель моего алгоритма, Мария, может собрать для вас индивидуальный протокол с нуля или отправить готовый бокс.",
+    "21d": "🤖 {user_name}, пока гидролипидная мантия не восстановлена, кожа находится в состоянии перманентного стресса. Кожа в стрессе увядает в разы быстрее — появляются преждевременные морщины. Нам нужно срочно выстроить защитную архитектуру.",
+    "30d": "🤖 Прошел ровно месяц. 28–35 дней — это полный цикл обновления эпидермиса. Если вы устали действовать вслепую и готовы выстроить грамотную, физиологичную базу — двери лаборатории открыты.",
+    "60d": "🤖 {user_name}, прошло два месяца. Изменились внешние факторы: температура, влажность. Кожа адаптировалась, и база, спасавшая вас раньше, может давать сбои. Необходимо провести аудит вашей системы и скорректировать протокол.",
+    "90d": "🤖 {user_name}, 90 дней — критический срок (PAO) для многих активов. Витамин С окисляется, пептиды теряют стабильность. Наносить такую косметику небезопасно. Пришло время провести ревизию и собрать новую архитектуру ухода.",
+    "180d": "🤖 Полгода назад вы инициировали запуск алгоритма. У вас есть два пути: активировать алгоритм и жестко фильтровать каждую банку, либо делегировать это Марии и получить готовый бокс. Выбор за вами.",
+    "renewal_audit": "🤖 {user_name}, завтра ваш доступ к сканирующему модулю закрывается.\nНе покупайте новые средства вслепую. Одно средство с жесткими ПАВами или комедогенной базой может спровоцировать воспаление и откатить результаты назад. Продлите «Аудит», чтобы я продолжил жестко фильтровать ваши покупки.\n⬆️ Или перейдите на следующий уровень: выберите «Сборку протокола». Я включу интеллектуальную память, запомню все ваши средства и выстрою из них единую безопасную систему.",
+    "renewal_protocol": "🤖 {user_name}, наш месяц работы подходит к концу. За 28–35 дней эпидермис проходит полный цикл обновления. Завтра ваш доступ к алгоритму закрывается.\nДавайте подведем итоги. Отметьте ниже этапы ухода, которые мы с вами уже успели закрыть безопасными, одобренными средствами:",
+    "reactivation_30d": "🤖 {user_name}, срок вашего доступа истек. Сканирующий модуль отключен. Ваша текущая архитектура ухода сохранена и переведена в архив. Когда потребуется выбрать новые средства — алгоритм будет готов распаковать архив и проверить составы.",
+    "reactivation_44d": "🤖 {user_name}, если самостоятельный подбор отнимает слишком много времени — снимите с себя эту задачу. Создатель алгоритма, Мария, собирает Индивидуальные Боксы вручную. Вы получаете готовую систему без необходимости вникать в химию.",
+    "reactivation_75d": "🤖 {user_name}, согласно статистике расхода, за 1,5–2 месяца базовая сыворотка или крем подходят к концу. Если вы планируете покупку новых средств, помните: не покупать вслепую. Доступ к лаборатории можно возобновить в любую минуту."
+}
+
+RETENTION_DELAYS = {
+    "2h": 7200, "24h": 86400, "48h": 172800, "5d": 432000, "7d": 604800,
+    "10d": 864000, "14d": 1209600, "21d": 1814400, "30d": 2592000,
+    "60d": 5184000, "90d": 7776000, "180d": 15552000,
+    "renewal_audit": 0, "renewal_protocol": 0,
+    "reactivation_30d": 0, "reactivation_44d": 0, "reactivation_75d": 0
+}
+
+
+def build_stage_keyboard(telegram_id: int):
+    stages = db.get_user_stages(telegram_id)
+    labels = {
+        "cleansing": "Мягкое очищение",
+        "toning": "Тонизация",
+        "cream": "Базовый крем",
+        "spf": "Защита SPF"
+    }
+    buttons = []
+    for key, label in labels.items():
+        status = "✅" if stages.get(key, False) else "❌"
+        buttons.append([InlineKeyboardButton(text=f"{status} {label}", callback_data=f"toggle_stage:{key}")])
+    buttons.append([InlineKeyboardButton(text="🏁 Завершить аудит системы", callback_data="finish_audit")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+async def _send_retention_notification(telegram_id: int, notif_type: str):
+    text_template = RETENTION_TEXTS.get(notif_type)
+    if not text_template:
+        return
+
+    user_name = db.get_user_name(telegram_id) or "Клиент"
+    text = text_template.format(user_name=user_name)
+
+    kb = None
+
+    if notif_type == "14d":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+        ])
+    elif notif_type == "180d":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+        ])
+    elif notif_type == "renewal_audit":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола — 2500 ₽", callback_data="pay_restore_90")]
+        ])
+    elif notif_type == "renewal_protocol":
+        kb = build_stage_keyboard(telegram_id)
+    elif notif_type == "reactivation_44d":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+        ])
+    elif notif_type in ["reactivation_30d", "reactivation_75d"]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Продлить Аудит — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Продлить Сборку — 2500 ₽", callback_data="pay_restore_90")]
+        ])
+    else:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
+        ])
+
+    try:
+        await bot.send_message(telegram_id, text, reply_markup=kb, parse_mode="HTML")
+        logger.info(f"📨 Уведомление '{notif_type}' → telegram_id={telegram_id}")
+    except Exception as e:
+        logger.warning(f"Не удалось отправить уведомление {notif_type} юзеру {telegram_id}: {e}")
+
+
+async def retention_worker():
+    logger.info("⏰ Retention-воркер запущен")
+    while True:
+        try:
+            due = db.get_due_notifications()
+            for n in due:
+                user_id = n["telegram_id"]
+                notif_type = n["type"]
+                delay = RETENTION_DELAYS.get(notif_type, 0)
+
+                if notif_type.startswith("reactivation_"):
+                    user = db.get_user(user_id)
+                    if user and (user.get("maria_order_status") == "completed_vip" or db.has_active_subscription(user)):
+                        db.mark_notification_sent(n["id"])
+                        continue
+
+                last_activity = db.get_last_activity(user_id)
+
+                if notif_type not in ["renewal_audit", "renewal_protocol", "reactivation_30d", "reactivation_44d", "reactivation_75d"] and last_activity and delay > 0:
+                    elapsed = (datetime.now() - last_activity).total_seconds()
+                    if elapsed < delay:
+                        new_time = last_activity + timedelta(seconds=delay)
+                        db.reschedule_notification(n["id"], new_time)
+                        continue
+
+                await _send_retention_notification(user_id, notif_type)
+                db.mark_notification_sent(n["id"])
+        except Exception as e:
+            logger.error(f"Ошибка в retention-воркере: {e}")
+        await asyncio.sleep(30)
+
+
+async def _resolve_user_name(message: types.Message, state: FSMContext, user: dict) -> str:
+    data = await state.get_data()
+    name = data.get("user_name")
+
+    if not name:
+        try:
+            name = db.get_user_name(message.from_user.id)
+        except Exception:
+            name = None
+
+    if not name:
+        name = message.from_user.first_name or "Клиент"
+
+    if data.get("user_name") != name:
+        await state.update_data(user_name=name)
+
+    return name
+
+
+async def send_client_card_to_admin(client_user: dict, log_lead: bool = True) -> bool:
+    user_name = _escape_html(client_user.get("user_name") or "Клиент")
+    username = client_user.get("username") or "нет_username"
+    username_html = f"@{_escape_html(username)}" if client_user.get("username") else "без username"
+    telegram_id = client_user["telegram_id"]
+    tags = client_user.get("user_tags", [])
+    medical_note = _escape_html(client_user.get("medical_note") or "Нет")
+
+    try:
+        tags_str = _escape_html(_translate_tags(tags)) if tags else "нет"
+    except Exception:
+        tags_str = "нет"
+
+    text = (
+        "🔔 <b>Клиент открыл раздел готового ухода Марии (Шаг 6)</b>\n"
+        f"👤 Имя: {user_name} ({username_html}, код: <code>#{telegram_id}</code>)\n"
+        f"🏷 Теги кожи: {tags_str}\n"
+        f"💊 Медицина: {medical_note}"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="⏸ Пауза пушей на 72 часа (Идет диалог)",
+            callback_data=f"admin_pause:{telegram_id}"
+        )],
+        [InlineKeyboardButton(
+            text="✅ Купила Бокс / PDF (Отключить пуши навсегда)",
+            callback_data=f"admin_vip:{telegram_id}"
+        )]
+    ])
+
+    if log_lead:
+        try:
+            db.save_lead(
+                telegram_id=telegram_id,
+                username=client_user.get("username") or "",
+                tags=tags,
+                photos=[]
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить лид {telegram_id}: {e}")
+
+    try:
+        await bot.send_message(ADMIN_ID, text, reply_markup=kb, parse_mode="HTML")
+        logger.info(f"📇 Карточка лида #{telegram_id} отправлена админу {ADMIN_ID}")
+        return True
+    except Exception as e:
+        logger.error(f"Не удалось отправить карточку админу: {e}")
+        return False
+
+
+async def handle_scanner_entry(message: types.Message, state: FSMContext, user: dict):
+    telegram_id = user["telegram_id"]
+    has_sub = db.has_active_subscription(user)
+
+    if telegram_id in UNLIMITED_IDS or has_sub:
+        await message.answer(
+            "Какое уходовое средство вы хотите проверить? Выберите категорию 👇",
+            reply_markup=get_category_4_keyboard()
+        )
+        await state.set_state(Form.waiting_for_composition)
+        return
+
+    free_used = user.get("free_scans_used", 0)
+
+    if free_used == 0:
+        await message.answer(
+            "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня в деле. "
+            "Прямо сейчас сфотографируйте состав на вашей баночке (или сделайте скриншот состава "
+            "на маркетплейсе) либо просто скопируйте его текстом. Но для начала выберите, "
+            "к какой категории относится средство 👇",
+            reply_markup=get_category_4_keyboard()
+        )
+        await state.set_state(Form.waiting_for_composition)
+
+    elif free_used == 1:
+        await message.answer(
+            "У вас осталась 1 бесплатная проверка. Выберите категорию средства 👇",
+            reply_markup=get_category_4_keyboard()
+        )
+        await state.set_state(Form.waiting_for_composition)
+
+    else:
+        db.schedule_retention_notifications(telegram_id)
+        await send_paywall(message)
+
+
+@dp.message(F.text == "/profile")
+async def cmd_profile(message: types.Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    user = db.get_or_create_user(telegram_id)
+    user_name = db.get_user_name(telegram_id) or "Клиент"
+
+    tags_str = _translate_tags(user.get("user_tags", []))
+
+    if not db.has_active_subscription(user):
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n"
+            f"Выберите тариф в меню /tariffs, чтобы включить сканер составов."
+        )
+        await message.answer(text)
+
+    elif user.get("scanner_tariff") == "audit_1000":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Тариф: 💳 Аудит (Безлимитный сканер)\n"
+            f"Активен до: {exp_date}"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+        ])
+        await message.answer(text, reply_markup=kb)
+
+    elif user.get("scanner_tariff") == "protocol_2500":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
+        count = db.count_approved_products(telegram_id)
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Тариф: 💎 Сборка протокола\n"
+            f"Активен до: {exp_date}\n"
+            f"Одобренных средств в вашей схеме: {count} шт."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="🗂 Моя собранная база (Просмотр / Удаление)", callback_data="btn_my_base")]
+        ])
+        await message.answer(text, reply_markup=kb)
+
+
+@dp.callback_query(F.data == "btn_check_new")
+async def handle_btn_check_new(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    user = db.get_or_create_user(callback.from_user.id)
+    await handle_scanner_entry(callback.message, state, user)
+    await callback.answer()
+
+
+async def show_user_base(callback: types.CallbackQuery):
+    telegram_id = callback.from_user.id
+    products = db.get_approved_products(telegram_id)
+
+    if not products:
+        text = "🗂 Ваша база пока пуста."
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад в профиль", callback_data="back_to_profile")]])
+    else:
+        text = "🗂 <b>Ваша собранная база средств:</b>\n\n"
+        kb_buttons = []
+        for i, p in enumerate(products[:15], 1):
+            status_str = "🟢" if p["status"] == "good" else ("🔵" if p["status"] == "hydrophilic" else "🟡")
+            comp_short = p["composition"][:30] + "..." if len(p["composition"]) > 30 else p["composition"]
+            if comp_short.startswith("[ФОТО"):
+                comp_short = "Фото состава"
+            text += f"{i}. {status_str} {p['stage']} ({comp_short})\n"
+            kb_buttons.append([InlineKeyboardButton(text=f"🗑 Удалить #{i}", callback_data=f"del_base_{p['id']}")])
+        if len(products) > 15:
+            text += f"\n... и еще {len(products) - 15} средств."
+        kb_buttons.append([InlineKeyboardButton(text="⬅️ Назад в профиль", callback_data="back_to_profile")])
+        kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@dp.callback_query(F.data == "btn_my_base")
+async def handle_btn_my_base(callback: types.CallbackQuery):
+    await show_user_base(callback)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("del_base_"))
+async def handle_del_base(callback: types.CallbackQuery):
+    record_id = int(callback.data.split("_")[-1])
+    db.delete_approved_product(record_id)
+    await callback.answer("Средство удалено.", show_alert=False)
+    await show_user_base(callback)
+
+
+@dp.callback_query(F.data == "back_to_profile")
+async def handle_back_to_profile(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    await cmd_profile(callback.message, state)
+    await callback.answer()
+
+
+@dp.message(F.text == "/tariffs")
+async def cmd_tariffs(message: types.Message):
+    text = (
+        "🤖 Роман Андреевич: Выберите формат работы с алгоритмом или закажите готовую систему у Марии:\n\n"
+        "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>: безлимитный сканер составов и защита от скрытых угроз.\n\n"
+        "💎 <b>СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>: интеллектуальная память бота, выстраивание системы ухода без пробелов и контроль конфликтов.\n\n"
+        "📦 <b>ГОТОВЫЙ УХОД</b>: Индивидуальный Бокс или PDF-протокол от создателя проекта."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
+        [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
+        [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@dp.message(CommandStart())
+async def cmd_start(message: types.Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    username = message.from_user.username
+    user = db.get_or_create_user(telegram_id, username)
+
+    if telegram_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
+        completed_at = user.get("survey_completed_at")
+        if completed_at:
+            try:
+                completed_date = datetime.fromisoformat(completed_at)
+                days_passed = (datetime.now() - completed_date).days
+
+                if days_passed < 30:
+                    days_left = 30 - days_passed
+                    await message.answer(
+                        f"Ваша диагностическая карта зафиксирована. Сейчас мы работаем с текущим "
+                        f"состоянием вашей кожи, ей нужно время на восстановление. ⏳\n\n"
+                        f"Обновить профиль и пройти диагностику заново можно будет через "
+                        f"*{days_left}* дней.",
+                        parse_mode="Markdown"
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Ошибка карантина: {e}")
+
+    try:
+        await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
+    except Exception as e:
+        logger.error(f"Не удалось отправить кружок: {e}")
+
+    if user.get("survey_done", 0) == 0:
+        await message.answer(
+            f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
+            f"Нажимая кнопку, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
+            f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.",
+            reply_markup=get_start_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        return
+
+    await handle_scanner_entry(message, state, user)
+
+    await message.answer(
+        "Также вы можете забрать готовый уход от Марии, нажав на кнопку внизу.",
+        reply_markup=get_mode_keyboard()
+    )
+
+
+@dp.message(F.text.lower() == "бокс")
+async def code_box(message: types.Message, state: FSMContext):
+    await cmd_start(message, state)
+
+
+@dp.message(F.text == "🤖 Собрать уход с Романом")
+async def gather_care_start(message: types.Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    user = db.get_or_create_user(telegram_id)
+
+    if user.get("survey_done", 0) == 0:
+        await message.answer(
+            "Для того чтобы я мог качественно проанализировать ваш уход, мне нужно узнать вашу кожу. "
+            "Пожалуйста, пройдите короткую диагностику 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="▶️ Пройти анкету", callback_data="start_diagnostics")]
+            ])
+        )
+        return
+
+    await handle_scanner_entry(message, state, user)
+
+
+MARIA_TEXT = (
     "📄 <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного PDF-руководства. "
-    "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку каждого средства и распишет "
-    "понятную инструкцию (что и как наносить утром и вечером). Вы покупаете всё сами по готовому списку. "
+    "Мария подберет косметику строго под ваш бюджет, даст прямые ссылки на покупку каждого средства "
+    "и распишет понятную инструкцию (что и как наносить утром и вечером). Вы покупаете всё сами по готовому списку. "
     "Этот файл останется с вами как надежная база: Мария добавит позиции на перспективу, чтобы вы всегда знали, "
     "какими средствами дополнить и усилить свой протокол.\n\n"
     "📦 <b>Индивидуальный Бокс (от 9 000 ₽)</b> — премиальный формат ухода «под ключ». "
     "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный работающий протокол. "
     "Вы получаете эстетичную коробку с полноразмерными средствами, подобранными строго под вашу кожу, "
-    "и подробную инструкцию. В эту стоимость уже включено ведение от Марии: она будет на связи, чтобы "
-    "контролировать динамику и довести вас до результата. Вам не нужно ходить по магазинам — забираете посылку "
-    "и начинаете свой путь к здоровой коже по протоколу.\n\n"
-    "Выберите нужный формат ниже: PDF-протокол можно оплатить сразу, а для заказа Бокса или консультации "
-    "перейдите в личный диалог с Марией 👇"
+    "и подробную инструкцию. В эту стоимость уже включено ведение от Марии: она будет на связи, "
+    "чтобы контролировать динамику и довести вас до результата. Вам не нужно ходить по магазинам — "
+    "забираете посылку и начинаете свой путь к здоровой коже по протоколу."
 )
 
 
-@dp.message(CommandStart())
-async def cmd_start(message: types.Message, state: FSMContext):
-    await state.clear()
-    user_id = message.from_user.id
-    username = message.from_user.username
-    db.get_or_create_user(user_id, username)
+@dp.callback_query(F.data.in_(["want_mariya_box", "no_care"]))
+async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    telegram_id = callback.from_user.id
+    user = db.get_or_create_user(telegram_id)
+    user_name = await _resolve_user_name(callback.message, state, user)
+
+    await send_client_card_to_admin(user)
+
+    if callback.data == "want_mariya_box":
+        intro = "Прекрасный выбор. Вы можете заказать у Марии:\n\n"
+    else:
+        intro = "Прекрасный выбор. Чистый лист — это идеальная возможность сразу выстроить грамотный фундамент. Вы можете заказать у Марии:\n\n"
+
+    full_text = (
+        intro + MARIA_TEXT +
+        "\n\nВыберите нужный формат ниже: PDF-протокол можно оплатить сразу, "
+        "а для заказа Бокса или консультации перейдите в личный диалог с Марией 👇"
+    )
+    await callback.message.answer(
+        full_text,
+        reply_markup=get_mariya_payment_keyboard(user_name, telegram_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@dp.message(F.text == "📝 Забрать уход от Марии")
+async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
+    user = db.get_or_create_user(message.from_user.id)
+    user_name = await _resolve_user_name(message, state, user)
+
+    await send_client_card_to_admin(user)
+
+    full_text = (
+        "Прекрасный выбор. Вы можете заказать у Марии:\n\n" + MARIA_TEXT +
+        "\n\nВыберите нужный формат ниже: PDF-протокол можно оплатить сразу, "
+        "а для заказа Бокса или консультации перейдите в личный диалог с Марией 👇"
+    )
+    await message.answer(
+        full_text,
+        reply_markup=get_mariya_payment_keyboard(user_name, message.from_user.id),
+        parse_mode="HTML"
+    )
+
+
+@dp.callback_query(F.data == "pay_pdf_4900")
+async def pay_pdf_4900(callback: types.CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+    user_name = db.get_user_name(telegram_id) or "Клиент"
+
+    db.cancel_retention_notifications(telegram_id)
+    db.set_maria_order_status(telegram_id, "completed_vip")
 
     try:
-        await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
-    except Exception as e:
-        logger.warning(f"Не удалось отправить кружочек: {e}")
+        await bot.send_message(ADMIN_ID, f"🎉 ОПЛАЧЕН PDF-ПРОТОКОЛ (4 900 ₽)\nКлиент: {user_name}\nID: {telegram_id}")
+    except Exception:
+        pass
 
-    await message.answer(
-        f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n"
-        f"Нажимая кнопку, вы принимаете условия <a href='{OFFER_URL}'>Публичной оферты</a> "
-        f"и даете <a href='{CONSENT_URL}'>Согласие на обработку персональных данных</a>.",
+    await callback.message.answer(
+        "Оплата успешно принята! Мария уже получила данные вашей диагностики. "
+        "Нажмите на кнопку ниже, чтобы перейти в личный диалог с Марией и согласовать комфортный бюджет на покупку средств 👇",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="СТАРТ", callback_data="start_diagnostics")]
-        ]),
-        parse_mode="HTML",
-        disable_web_page_preview=True
+            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+        ])
     )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "pay_audit_30")
+async def pay_audit_30(callback: types.CallbackQuery):
+    telegram_id = callback.from_user.id
+
+    payment_id = f"test_{telegram_id}_{datetime.now().timestamp()}"
+    db.save_payment(payment_id, telegram_id, 1000, "audit_1000")
+    db.update_user_subscription(telegram_id, "audit_1000", 30)
+
+    db.cancel_retention_notifications(telegram_id)
+
+    now = datetime.now()
+    db.schedule_single_notification(telegram_id, "renewal_audit", now + timedelta(days=29))
+    db.schedule_single_notification(telegram_id, "reactivation_30d", now + timedelta(days=30))
+    db.schedule_single_notification(telegram_id, "reactivation_44d", now + timedelta(days=44))
+    db.schedule_single_notification(telegram_id, "reactivation_75d", now + timedelta(days=75))
+
+    await callback.message.answer(
+        "Доступ к лаборатории открыт на 30 дней! Присылайте составы текстом или фотографией этикетки. "
+        "Выберите категорию средства для проверки 👇",
+        reply_markup=get_category_4_keyboard()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "pay_restore_90")
+async def pay_restore_90(callback: types.CallbackQuery):
+    telegram_id = callback.from_user.id
+
+    payment_id = f"test_{telegram_id}_{datetime.now().timestamp()}"
+    db.save_payment(payment_id, telegram_id, 2500, "protocol_2500")
+    db.update_user_subscription(telegram_id, "protocol_2500", 30)
+
+    db.cancel_retention_notifications(telegram_id)
+
+    now = datetime.now()
+    db.schedule_single_notification(telegram_id, "renewal_protocol", now + timedelta(days=29))
+    db.schedule_single_notification(telegram_id, "reactivation_30d", now + timedelta(days=30))
+    db.schedule_single_notification(telegram_id, "reactivation_44d", now + timedelta(days=44))
+    db.schedule_single_notification(telegram_id, "reactivation_75d", now + timedelta(days=75))
+
+    await callback.message.answer(
+        "Доступ к лаборатории открыт на 30 дней! Присылайте составы текстом или фотографией этикетки. "
+        "Выберите категорию средства для проверки 👇",
+        reply_markup=get_category_4_keyboard()
+    )
+    await callback.answer()
 
 
 @dp.callback_query(F.data == "start_diagnostics")
-async def start_diagnostics_cb(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    db.get_or_create_user(user_id, callback.from_user.username)
-    db.clear_user_tags_for_new_survey(user_id)
-
+async def start_diagnostics(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    telegram_id = callback.from_user.id
+    db.clear_user_tags(telegram_id)
     await state.clear()
-    await state.set_state(SurveyStates.waiting_for_name)
-
-    await callback.message.answer("Для начала напишите, как к вам обращаться:")
+    await state.set_state(Form.waiting_for_name)
+    await state.update_data(step_contrib={})
+    await callback.message.answer(
+        "Для начала напишите, как к вам обращаться:",
+        reply_markup=get_mode_keyboard()
+    )
     await callback.answer()
 
 
-@dp.message(StateFilter(SurveyStates.waiting_for_name))
-async def process_name_step(message: types.Message, state: FSMContext):
-    if not message.text:
-        await message.answer("Пожалуйста, напишите ваше имя текстом:")
+@dp.message(StateFilter(Form.waiting_for_name))
+async def process_name(message: types.Message, state: FSMContext):
+    name = sanitize_name(message.text or "")
+
+    if not name:
+        await message.answer(
+            "Пожалуйста, введите имя буквами (без цифр и символов):",
+            reply_markup=get_mode_keyboard()
+        )
         return
 
-    clean_name = sanitize_user_name(message.text)
-    if not clean_name:
-        await message.answer("Пожалуйста, введите корректное имя (буквами, до 30 символов):")
-        return
+    await state.update_data(user_name=name)
+    try:
+        db.update_user_name(message.from_user.id, name)
+    except Exception:
+        pass
 
-    db.update_user_name(message.from_user.id, clean_name)
-    await state.update_data(
-        user_name=clean_name,
-        q1_selected=[],
-        q5_selected=[],
-        tags=[],
-        q2_pergament=False,
-        medical_note=""
+    await state.set_state(Form.survey)
+    await state.update_data(survey_step=0, tags=[], q2_answer=None, step_contrib={})
+
+    msg = await message.answer(
+        "Отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, "
+        "с чем мы работаем. 👇"
     )
+    await asyncio.sleep(1.5)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
-    await message.answer("Отлично! А теперь ответьте на 6 быстрых вопросов, чтобы я понял, с чем мы работаем. 👇")
-    await state.set_state(SurveyStates.q1)
+    await send_question(message, state)
+
+
+async def send_question(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    step = data.get("survey_step", 0)
+    tags = data.get("tags", [])
+
+    if step >= len(SURVEY_QUESTIONS):
+        await finish_survey(message, state)
+        return
+
+    q = SURVEY_QUESTIONS[step]
+    buttons = []
+
+    for opt_text, tag in q["options"]:
+        if q["multi"]:
+            is_selected = tag in tags if tag not in ["none", "medicine_other", "normal", "normal_exclusive"] else False
+            prefix = "✅" if is_selected else "⬜️"
+            buttons.append([InlineKeyboardButton(text=f"{prefix} {opt_text}", callback_data=f"q_{step}_{tag or 'none'}")])
+        else:
+            buttons.append([InlineKeyboardButton(text=opt_text, callback_data=f"q_{step}_{tag or 'none'}")])
+
+    if q["multi"]:
+        buttons.append([InlineKeyboardButton(text="Далее ➔", callback_data=f"q_{step}_done")])
+
+    if step > 0:
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_{step}")])
+
     await message.answer(
-        "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько вариантов)",
-        reply_markup=build_q1_keyboard([])
+        q["text"],
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
 
-@dp.callback_query(StateFilter(SurveyStates.q1), F.data.startswith("q1_toggle:"))
-async def q1_toggle_cb(callback: types.CallbackQuery, state: FSMContext):
-    idx = int(callback.data.split(":")[1])
+@dp.callback_query(StateFilter(Form.survey), F.data.regexp(r"^back_\d+$"))
+async def process_back(callback: types.CallbackQuery, state: FSMContext):
+    step = int(callback.data.split("_")[1])
+    new_step = step - 1
+
     data = await state.get_data()
-    selected: list[int] = data.get("q1_selected", [])
-    exclusive_idx = len(Q1_OPTIONS) - 1
+    tags = data.get("tags", [])
+    step_contrib = data.get("step_contrib", {})
 
-    if idx == exclusive_idx:
-        selected = [] if exclusive_idx in selected else [exclusive_idx]
-    else:
-        if exclusive_idx in selected:
-            selected.remove(exclusive_idx)
-        if idx in selected:
-            selected.remove(idx)
-        else:
-            selected.append(idx)
+    for t in step_contrib.get(str(step), []):
+        if t in tags:
+            tags.remove(t)
+    step_contrib.pop(str(step), None)
 
-    await state.update_data(q1_selected=selected)
-    try:
-        await callback.message.edit_reply_markup(reply_markup=build_q1_keyboard(selected))
-    except Exception:
-        pass
+    await state.update_data(survey_step=new_step, tags=tags, step_contrib=step_contrib)
+    await callback.message.delete()
+    await send_question(callback.message, state)
     await callback.answer()
 
 
-@dp.callback_query(StateFilter(SurveyStates.q1), F.data == "q1_next")
-async def q1_next_cb(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    selected: list[int] = data.get("q1_selected", [])
+@dp.callback_query(StateFilter(Form.survey), F.data.regexp(r"^q_\d+_.+$"))
+async def process_answer(callback: types.CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_", 2)
+    step = int(parts[1])
+    tag = parts[2]
 
-    if not selected:
-        await callback.answer("Пожалуйста, отметьте хотя бы один вариант!", show_alert=True)
+    data = await state.get_data()
+    tags = data.get("tags", [])
+    q2_answer = data.get("q2_answer")
+
+    if tag == "done":
+        if step == 0:
+            has_tag = any(t in tags for t in ["problem", "seboprofit", "pores", "dry", "peeling", "pigment", "age", "couperose", "normal"])
+            if not has_tag:
+                await callback.answer("Выберите хотя бы один вариант!", show_alert=True)
+                return
+        elif step == 4:
+            has_tag = any(t in tags for t in ["reactive", "medicine", "pregnancy", "normal_exclusive", "medicine_other"])
+            if not has_tag:
+                await callback.answer("Выберите хотя бы один вариант!", show_alert=True)
+                return
+
+        await state.update_data(survey_step=step + 1)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+        await callback.answer()
         return
 
-    tags: list[str] = data.get("tags", [])
-    for idx in sorted(selected):
-        _, tag = Q1_OPTIONS[idx]
-        if tag and tag != "EXCLUSIVE_NONE" and tag not in tags:
-            tags.append(tag)
-
-    await state.update_data(tags=tags)
-    await state.set_state(SurveyStates.q2)
-    try:
-        await callback.message.edit_text(
-            "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
-            reply_markup=build_single_choice_keyboard(Q2_OPTIONS, "q2")
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
-            reply_markup=build_single_choice_keyboard(Q2_OPTIONS, "q2")
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q2), F.data == "back_to_q2")
-async def back_to_q1_cb(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(SurveyStates.q1)
-    data = await state.get_data()
-    selected = data.get("q1_selected", [])
-    try:
-        await callback.message.edit_text(
-            "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько вариантов)",
-            reply_markup=build_q1_keyboard(selected)
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько вариантов)",
-            reply_markup=build_q1_keyboard(selected)
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q2), F.data.startswith("q2:"))
-async def q2_answer_cb(callback: types.CallbackQuery, state: FSMContext):
-    idx = int(callback.data.split(":")[1])
-    _, tag = Q2_OPTIONS[idx]
-    data = await state.get_data()
-    tags: list[str] = data.get("tags", [])
-    if tag and tag not in tags:
-        tags.append(tag)
-
-    q2_pergament = (idx == 2)
-    await state.update_data(tags=tags, q2_pergament=q2_pergament)
-    await state.set_state(SurveyStates.q3)
-    try:
-        await callback.message.edit_text(
-            "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
-            reply_markup=build_single_choice_keyboard(Q3_OPTIONS, "q3")
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
-            reply_markup=build_single_choice_keyboard(Q3_OPTIONS, "q3")
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q3), F.data == "back_to_q3")
-async def back_to_q2_cb(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(SurveyStates.q2)
-    try:
-        await callback.message.edit_text(
-            "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
-            reply_markup=build_single_choice_keyboard(Q2_OPTIONS, "q2")
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
-            reply_markup=build_single_choice_keyboard(Q2_OPTIONS, "q2")
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q3), F.data.startswith("q3:"))
-async def q3_answer_cb(callback: types.CallbackQuery, state: FSMContext):
-    idx = int(callback.data.split(":")[1])
-    _, raw_tag = Q3_OPTIONS[idx]
-    data = await state.get_data()
-    tags: list[str] = data.get("tags", [])
-    q2_pergament = data.get("q2_pergament", False)
-
-    resolved_tag = "Компенсаторная жирность" if (raw_tag == "CONDITIONAL_SHINE" and q2_pergament) else (
-        "Себопрофицит" if raw_tag == "CONDITIONAL_SHINE" else raw_tag
-    )
-    if resolved_tag and resolved_tag not in tags:
-        tags.append(resolved_tag)
-
-    await state.update_data(tags=tags)
-    await state.set_state(SurveyStates.q4)
-    try:
-        await callback.message.edit_text(
-            "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям?",
-            reply_markup=build_single_choice_keyboard(Q4_OPTIONS, "q4")
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям?",
-            reply_markup=build_single_choice_keyboard(Q4_OPTIONS, "q4")
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q4), F.data == "back_to_q4")
-async def back_to_q3_cb(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(SurveyStates.q3)
-    try:
-        await callback.message.edit_text(
-            "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
-            reply_markup=build_single_choice_keyboard(Q3_OPTIONS, "q3")
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
-            reply_markup=build_single_choice_keyboard(Q3_OPTIONS, "q3")
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q4), F.data.startswith("q4:"))
-async def q4_answer_cb(callback: types.CallbackQuery, state: FSMContext):
-    idx = int(callback.data.split(":")[1])
-    _, tag = Q4_OPTIONS[idx]
-    data = await state.get_data()
-    tags: list[str] = data.get("tags", [])
-    if tag and tag not in tags:
-        tags.append(tag)
-
-    await state.update_data(tags=tags, q5_selected=[])
-    await state.set_state(SurveyStates.q5)
-    try:
-        await callback.message.edit_text(
-            "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько вариантов)",
-            reply_markup=build_q5_keyboard([])
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько вариантов)",
-            reply_markup=build_q5_keyboard([])
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q5), F.data == "back_to_q5")
-async def back_to_q4_cb(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(SurveyStates.q4)
-    try:
-        await callback.message.edit_text(
-            "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям?",
-            reply_markup=build_single_choice_keyboard(Q4_OPTIONS, "q4")
-        )
-    except Exception:
-        await callback.message.answer(
-            "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям?",
-            reply_markup=build_single_choice_keyboard(Q4_OPTIONS, "q4")
-        )
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q5), F.data.startswith("q5_toggle:"))
-async def q5_toggle_cb(callback: types.CallbackQuery, state: FSMContext):
-    idx = int(callback.data.split(":")[1])
-    data = await state.get_data()
-    selected: list[int] = data.get("q5_selected", [])
-    exclusive_idx = 4
-
-    if idx == exclusive_idx:
-        selected = [] if exclusive_idx in selected else [exclusive_idx]
-    else:
-        if exclusive_idx in selected:
-            selected.remove(exclusive_idx)
-        if idx in selected:
-            selected.remove(idx)
-        else:
-            selected.append(idx)
-
-    await state.update_data(q5_selected=selected)
-    try:
-        await callback.message.edit_reply_markup(reply_markup=build_q5_keyboard(selected))
-    except Exception:
-        pass
-    await callback.answer()
-
-
-@dp.callback_query(StateFilter(SurveyStates.q5), F.data == "q5_next")
-async def q5_next_cb(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    selected: list[int] = data.get("q5_selected", [])
-
-    if not selected:
-        await callback.answer("Пожалуйста, отметьте хотя бы один вариант!", show_alert=True)
+    if step == 4 and tag == "medicine_other":
+        await state.set_state(Form.waiting_for_medicine)
+        await callback.message.delete()
+        await callback.message.answer("Напишите ваш вариант (кратко одним сообщением):")
+        await callback.answer()
         return
 
-    tags: list[str] = data.get("tags", [])
-    has_other_med = False
+    if step == 5:
+        if tag == "no_allergy":
+            await state.update_data(survey_step=6)
+            await callback.message.delete()
+            await finish_survey(callback.message, state)
+            await callback.answer()
+            return
+        if tag == "has_allergy":
+            await state.update_data(survey_step=6)
+            await state.set_state(Form.waiting_for_allergy)
+            await callback.message.delete()
+            await callback.message.answer("Напишите название компонента, на который у вас аллергия:")
+            await callback.answer()
+            return
 
-    for idx in sorted(selected):
-        _, tag = Q5_OPTIONS[idx]
-        if tag == "OTHER_MED":
-            has_other_med = True
-            if "Медицина" not in tags:
-                tags.append("Медицина")
-        elif tag and tag != "EXCLUSIVE_NONE" and tag not in tags:
+    if step == 1:
+        await state.update_data(q2_answer=tag)
+
+    if tag in ["normal", "normal_exclusive"]:
+        step_tags = [t for _, t in SURVEY_QUESTIONS[step]["options"] if t not in ["none", "medicine_other", "normal", "normal_exclusive"]]
+        tags = [t for t in tags if t not in step_tags]
+        if tag not in tags:
             tags.append(tag)
+        await state.update_data(tags=tags)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+        await callback.answer()
+        return
 
-    await state.update_data(tags=tags)
+    if tag not in ["none", "medicine_other"]:
+        if "normal" in tags and step == 0:
+            tags.remove("normal")
+        if "normal_exclusive" in tags and step == 4:
+            tags.remove("normal_exclusive")
 
-    if has_other_med:
-        await state.set_state(SurveyStates.waiting_for_medical_text)
-        try:
-            await callback.message.edit_text("Напишите ваш вариант (кратко одним сообщением):")
-        except Exception:
-            await callback.message.answer("Напишите ваш вариант (кратко одним сообщением):")
-    else:
-        await state.set_state(SurveyStates.q6)
-        try:
-            await callback.message.edit_text(
-                "Вопрос 6. Известная аллергия на компоненты?",
-                reply_markup=build_q6_keyboard()
-            )
-        except Exception:
-            await callback.message.answer(
-                "Вопрос 6. Известная аллергия на компоненты?",
-                reply_markup=build_q6_keyboard()
-            )
-    await callback.answer()
+    q = SURVEY_QUESTIONS[step]
+    if q["multi"]:
+        if tag in tags:
+            tags.remove(tag)
+        else:
+            if tag != "none":
+                tags.append(tag)
+        await state.update_data(tags=tags)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+        await callback.answer()
+        return
+
+    if not q["multi"]:
+        added = []
+
+        if step == 2 and tag == "CONDITIONAL_BLINK":
+            if q2_answer == "barrier_broken":
+                tags = [t for t in tags if t != "CONDITIONAL_BLINK"]
+                tags.append("fat_compensatory")
+                added.append("fat_compensatory")
+            else:
+                tags = [t for t in tags if t != "CONDITIONAL_BLINK"]
+                tags.append("seboprofit")
+                added.append("seboprofit")
+        elif tag != "none":
+            if tag not in tags:
+                tags.append(tag)
+                added.append(tag)
+
+        step_contrib = data.get("step_contrib", {})
+        step_contrib[str(step)] = added
+
+        await state.update_data(tags=tags, survey_step=step + 1, step_contrib=step_contrib)
+        await callback.message.delete()
+        await send_question(callback.message, state)
+        await callback.answer()
 
 
-@dp.message(StateFilter(SurveyStates.waiting_for_medical_text))
-async def process_medical_text_step(message: types.Message, state: FSMContext):
-    if not message.text:
+@dp.message(StateFilter(Form.waiting_for_medicine))
+async def process_medicine(message: types.Message, state: FSMContext):
+    text = sanitize_input(message.text or "", max_len=100)
+
+    if not text:
         await message.answer("Пожалуйста, напишите ваш вариант текстом:")
         return
 
-    clean_med = sanitize_short_input(message.text, 100)
-    await state.update_data(medical_note=clean_med)
-    await state.set_state(SurveyStates.q6)
-    await message.answer(
-        "Вопрос 6. Известная аллергия на компоненты?",
-        reply_markup=build_q6_keyboard()
-    )
+    data = await state.get_data()
+    tags = data.get("tags", [])
+    if "medicine" not in tags:
+        tags.append("medicine")
+
+    other = data.get("medicine_other", [])
+    other.append(text)
+
+    await state.update_data(tags=tags, medicine_other=other, survey_step=5)
+    await state.set_state(Form.survey)
+    await message.answer(f"Записано: «{text}».")
+    await send_question(message, state)
 
 
-@dp.callback_query(StateFilter(SurveyStates.q6), F.data == "q6:no")
-async def q6_no_cb(callback: types.CallbackQuery, state: FSMContext):
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-    await finalize_survey_and_show_diagnosis(callback.message, callback.from_user.id, state)
-    await callback.answer()
+@dp.message(StateFilter(Form.waiting_for_allergy))
+async def process_allergy(message: types.Message, state: FSMContext):
+    allergy_text = sanitize_input(message.text or "", max_len=100)
 
-
-@dp.callback_query(StateFilter(SurveyStates.q6), F.data == "q6:yes")
-async def q6_yes_cb(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(SurveyStates.waiting_for_allergy_text)
-    try:
-        await callback.message.edit_text("Напишите название компонента, на который у вас аллергия:")
-    except Exception:
-        await callback.message.answer("Напишите название компонента, на который у вас аллергия:")
-    await callback.answer()
-
-
-@dp.message(StateFilter(SurveyStates.waiting_for_allergy_text))
-async def process_allergy_text_step(message: types.Message, state: FSMContext):
-    if not message.text:
-        await message.answer("Пожалуйста, напишите название компонента текстом:")
+    if not allergy_text:
+        await message.answer("Пожалуйста, напишите название аллергена текстом:")
         return
 
-    clean_allergy = sanitize_short_input(message.text, 100)
     data = await state.get_data()
-    tags: list[str] = data.get("tags", [])
-    if clean_allergy:
-        tags.append(f"Аллергия на {clean_allergy}")
+    tags = data.get("tags", [])
+    tags.append(f"allergy_{allergy_text}")
+
     await state.update_data(tags=tags)
+    await state.set_state(Form.survey)
+    await message.answer(f"Записано: аллергия на «{allergy_text}». Учту это при анализе.")
+    await finish_survey(message, state)
 
-    await finalize_survey_and_show_diagnosis(message, message.from_user.id, state)
 
-
-async def finalize_survey_and_show_diagnosis(message: types.Message, user_id: int, state: FSMContext):
+async def finish_survey(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    tags: list[str] = data.get("tags", [])
-    medical_note: str = data.get("medical_note", "")
+    tags = data.get("tags", [])
+    medical_note = None
+    if "medicine_other" in data:
+        medical_note = ", ".join(data["medicine_other"])
+
+    telegram_id = message.chat.id
 
     if not tags:
-        tags = ["Норма"]
+        tags.append("normal")
 
-    db.save_survey_results(user_id, tags, medical_note)
-    await state.clear()
+    db.update_user_tags(telegram_id, tags, medical_note)
+    if telegram_id not in UNLIMITED_IDS:
+        db.mark_survey_completed(telegram_id)
 
-    paragraphs = []
-    if "Медицина" in tags:
-        paragraphs.append(
-            "Вижу по анкете, что у вас есть дерматологический диагноз. Важно: я ИИ-технолог, а не врач, "
-            "и я не назначаю лечение. Моя задача — помочь вам собрать безопасную базу, которая не спровоцирует обострение."
+    db.schedule_retention_notifications(telegram_id)
+
+    diagnosis_parts = []
+    if "medicine" in tags:
+        diagnosis_parts.append(
+            "Вижу по анкете, что у вас есть дерматологический диагноз. Важно: я ИИ-технолог, "
+            "а не врач, и я не назначаю лечение. Моя задача — помочь вам собрать безопасную базу, "
+            "которая не спровоцирует обострение."
         )
-    if "Сломан барьер" in tags:
-        paragraphs.append(
+    if "barrier_broken" in tags:
+        diagnosis_parts.append(
             "Фиксируем нарушение гидролипидной мантии. Кожа теряет влагу и беззащитна. "
             "Если сейчас агрессивно вводить антиэйдж или кислоты, мы получим воспаление."
         )
-    if not paragraphs:
-        paragraphs.append(
+    if not diagnosis_parts:
+        diagnosis_parts.append(
             "Фиксируем нормальное состояние эпидермиса. Гидролипидная мантия функционирует стабильно. "
             "Наша стратегия — поддерживать баланс и предотвращать стресс."
         )
 
-    await message.answer("\n\n".join(paragraphs))
+    diagnosis = "\n\n".join(diagnosis_parts)
+
+    await message.answer("📊 Диагностика завершена.")
+    await message.answer(diagnosis)
+
     await message.answer(
-        "Диагностика завершена. Теперь нам нужно выстроить безопасный физиологичный уход. "
+        "Теперь нам нужно выстроить безопасный физиологичный уход. "
         "Вы можете собрать его самостоятельно, проверяя каждое средство вместе со мной, Романом Андреевичем, "
         "или сразу забрать готовую схему от Марии. Если у вас сейчас вообще нет ухода — мы выстроим его с чистого листа.",
-        reply_markup=get_step3_fork_keyboard()
+        reply_markup=get_path_keyboard()
     )
+    await state.set_state(Form.waiting_for_composition)
 
 
-@dp.callback_query(F.data == "branch_roman")
-async def branch_roman_cb(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    user = db.get_or_create_user(user_id, callback.from_user.username)
-    has_sub, _ = db.has_active_scanner_sub(user_id)
-    free_used = user.get("free_scans_used", 0)
-
-    if has_sub:
-        await callback.message.answer(
-            "Доступ к лаборатории открыт на 30 дней! Присылайте составы текстом или фотографией этикетки. "
-            "Выберите категорию средства для проверки 👇",
-            reply_markup=get_categories_keyboard()
-        )
-    elif free_used == 0:
-        await callback.message.answer(
-            "Отличный план! Я даю вам 2 бесплатные проверки, чтобы вы протестировали меня в деле. "
-            "Прямо сейчас сфотографируйте состав на вашей баночке (или сделайте скриншот состава на маркетплейсе) "
-            "либо просто скопируйте его текстом. Но для начала выберите, к какой категории относится средство 👇",
-            reply_markup=get_categories_keyboard()
-        )
-    elif free_used == 1:
-        await callback.message.answer(
-            "🎁 Но у вас осталась еще 1 бесплатная попытка! Какую категорию проверим следующей?",
-            reply_markup=get_categories_keyboard()
-        )
-    else:
-        await callback.message.answer(
-            PAYWALL_MESSAGE_TEXT,
-            reply_markup=get_paywall_keyboard(),
-            parse_mode="HTML"
-        )
+@dp.callback_query(F.data == "go_scanner")
+async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    user = db.get_or_create_user(callback.from_user.id)
+    await handle_scanner_entry(callback.message, state, user)
     await callback.answer()
 
 
-@dp.callback_query(F.data.startswith("cat:"))
-async def select_category_cb(callback: types.CallbackQuery, state: FSMContext):
-    category = callback.data.split(":")[1]
-    user_id = callback.from_user.id
-    user = db.get_or_create_user(user_id, callback.from_user.username)
+@dp.callback_query(F.data == "back_to_scanner")
+async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    user = db.get_or_create_user(callback.from_user.id)
+    await handle_scanner_entry(callback.message, state, user)
+    await callback.answer()
 
-    if user.get("survey_done", 0) == 0:
-        await callback.message.answer(
-            "Пожалуйста, сначала завершите короткую диагностику кожи 👇",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="СТАРТ", callback_data="start_diagnostics")]
-            ])
-        )
-        await callback.answer()
+
+async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str):
+    telegram_id = user["telegram_id"]
+    user_name = await _resolve_user_name(message, state, user)
+
+    lock = get_user_lock(telegram_id)
+    if lock.locked():
+        await message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
         return
 
-    has_sub, _ = db.has_active_scanner_sub(user_id)
-    if not has_sub and user.get("free_scans_used", 0) >= 2:
-        await callback.message.answer(
-            PAYWALL_MESSAGE_TEXT,
-            reply_markup=get_paywall_keyboard(),
-            parse_mode="HTML"
-        )
-        await callback.answer()
-        return
+    async with lock:
+        user = db.get_or_create_user(telegram_id)
+        if not check_user_limits(user):
+            db.schedule_retention_notifications(telegram_id)
+            await send_paywall(message)
+            return
+
+        tariff = get_user_tariff(user)
+
+        if telegram_id not in UNLIMITED_IDS:
+            limit_status = db.check_rate_limit(telegram_id)
+            if limit_status:
+                if limit_status == "day":
+                    await message.answer("Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿")
+                else:
+                    await message.answer("⏳ Слишком много запросов. Пожалуйста, подождите немного.")
+                return
+
+        db.log_scan(telegram_id)
+        tags = user.get("user_tags", [])
+
+        approved_routine = ""
+        if tariff == "protocol":
+            products = db.get_approved_products(telegram_id)
+            if products:
+                lines = []
+                for p in products:
+                    lines.append(f"Этап: {p['stage']} | Статус: {p['status']} | Активы: {p['key_actives']}")
+                approved_routine = "\n".join(lines)
+
+        loading_msg = await message.answer("🔬 Анализирую состав...")
+
+        try:
+            result = await analyze_composition(composition, tags, user_name, category, tariff, approved_routine)
+            clean_text = result["verdict"]
+            stage = result["stage"]
+            actives = result["key_actives"]
+            status = result["status"]
+
+            if status not in ANALYZABLE_STATUSES:
+                await loading_msg.edit_text(
+                    "⚠️ Модель не смогла выдать вердикт по этому составу. Попробуйте ещё раз — лимит не списан."
+                )
+                return
+
+            record_id = None
+            if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
+                record_id = db.save_approved_product(telegram_id, composition, status, category, stage, actives)
+
+            db.save_analysis(telegram_id, composition, clean_text, status)
+
+            if status in ["bad", "hidden_threat"]:
+                db.increment_bad_bottles(telegram_id)
+            else:
+                db.reset_bad_bottles(telegram_id)
+
+            is_unlimited = (telegram_id in UNLIMITED_IDS)
+            has_sub = db.has_active_subscription(user)
+            is_protocol = user.get("scanner_tariff") == "protocol_2500" and has_sub
+
+            if is_unlimited:
+                await loading_msg.edit_text(clean_text)
+                await message.answer("👑 Режим безлимита: проверок не ограничено.")
+            elif not has_sub:
+                db.increment_free_scans_used(telegram_id)
+                updated_user = db.get_or_create_user(telegram_id)
+                remaining = 2 - updated_user.get("free_scans_used", 0)
+
+                await loading_msg.edit_text(clean_text)
+
+                if remaining == 1:
+                    await message.answer(WARMUP_TEXT, reply_markup=get_category_4_keyboard(), parse_mode="HTML")
+                    await state.update_data(category=None, photo_urls=[])
+                    return
+                elif remaining <= 0:
+                    db.schedule_retention_notifications(telegram_id)
+                    await send_paywall(message)
+                    await state.update_data(category=None, photo_urls=[])
+                    return
+            else:
+                await loading_msg.edit_text(clean_text)
+
+            rows = []
+            if is_protocol and record_id:
+                rows.append([InlineKeyboardButton(
+                    text="🗑 Я только смотрю в магазине (Не добавлять в мой уход)",
+                    callback_data=f"remove_item:{record_id}"
+                )])
+            rows.extend(get_category_4_keyboard().inline_keyboard)
+            kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+            await state.update_data(category=None, photo_urls=[])
+            await message.answer(
+                "Проверим следующее средство? Выберите категорию 👇",
+                reply_markup=kb
+            )
+
+        except Exception as e:
+            logger.error(f"Ошибка анализа: {e}")
+            await loading_msg.edit_text("❌ Техническая ошибка. Попробуйте ещё раз — лимит не списан.")
+
+
+PHOTO_HINT = "📸 Фото состава крупно, без бликов (круглые баночки — с 2-3 сторон). Или скопируйте состав из интернета!"
+
+
+@dp.callback_query(F.data.startswith("cat_"))
+async def process_category_choice(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    cat_data = callback.data.split("_")
+    cat_type = cat_data[1]
 
     data = await state.get_data()
     pending_inci = data.get("pending_inci")
-    await callback.answer()
+
+    await state.update_data(category=cat_type)
 
     if pending_inci:
-        await state.update_data(pending_inci=None, selected_category=None)
-        await state.clear()
-        await execute_scan_with_lock(
-            message=callback.message,
-            user_id=user_id,
-            username=callback.from_user.username,
-            category=category,
-            raw_inci_text=pending_inci
+        user = db.get_or_create_user(callback.from_user.id)
+        await state.update_data(pending_inci=None)
+        await callback.message.answer("Категория выбрана. Приступаю к анализу!")
+        await perform_analysis(callback.message, state, user, pending_inci, cat_type)
+    else:
+        await callback.message.answer(
+            "Категория выбрана. Отправьте фотографию состава (четкое фото этикетки или скриншот из интернет-магазина) "
+            "либо пришлите список компонентов (INCI) текстом 👇"
         )
-        return
+        await state.set_state(Form.waiting_for_composition)
 
-    await state.update_data(selected_category=category)
-    await state.set_state(SurveyStates.waiting_for_inci)
-    await callback.message.answer(
-        "Категория выбрана. Отправьте фотографию состава (четкое фото этикетки или скриншот из интернет-магазина) "
-        "либо пришлите список компонентов (INCI) текстом 👇"
-    )
+    await callback.answer()
 
 
-async def _ensure_user_can_scan(message: types.Message, user_id: int, username: str, state: FSMContext) -> bool:
-    user = db.get_or_create_user(user_id, username)
-    current_state = await state.get_state()
-
-    if user.get("survey_done", 0) == 0:
-        if current_state in SURVEY_ACTIVE_STATES:
-            await message.answer("Пожалуйста, ответьте на текущий вопрос анкеты выше ☝️")
-        else:
-            await message.answer(
-                "Чтобы я мог проанализировать состав под вашу кожу, сначала пройдите короткую диагностику 👇",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="СТАРТ", callback_data="start_diagnostics")]
-                ])
-            )
-        return False
-
-    has_sub, _ = db.has_active_scanner_sub(user_id)
-    if not has_sub and user.get("free_scans_used", 0) >= 2:
+@dp.message(StateFilter(Form.waiting_for_composition), F.photo)
+async def process_photo_composition(message: types.Message, state: FSMContext):
+    if message.media_group_id:
         await message.answer(
-            PAYWALL_MESSAGE_TEXT,
-            reply_markup=get_paywall_keyboard(),
-            parse_mode="HTML"
+            "Пожалуйста, отправляйте строго по одной фотографии за раз, чтобы я проверил каждое средство отдельно. "
+            "Ваша попытка сохранена."
         )
-        return False
-
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    scans_today = user.get("scans_today", 0) if user.get("last_scan_date") == today_str else 0
-    if scans_today >= 40 or (user.get("scans_month") or 0) >= 500:
-        await message.answer("Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿")
-        return False
-
-    return True
-
-
-async def execute_scan_with_lock(
-    message: types.Message,
-    user_id: int,
-    username: str,
-    category: str,
-    raw_inci_text: str
-):
-    lock = get_user_lock(user_id)
-    if lock.locked():
-        await message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
         return
 
-    async with lock:
-        if not check_rate_limit_3_per_min(user_id):
-            await message.answer("⏳ Слишком много запросов подряд. Подождите 15–20 секунд и отправьте состав снова.")
-            return
-
-        user = db.get_or_create_user(user_id, username)
-        has_sub, tariff = db.has_active_scanner_sub(user_id)
-
-        if not has_sub and user.get("free_scans_used", 0) >= 2:
-            await message.answer(
-                PAYWALL_MESSAGE_TEXT,
-                reply_markup=get_paywall_keyboard(),
-                parse_mode="HTML"
-            )
-            return
-
-        wait_msg = await message.answer("🔬 Провожу химический аудит состава...")
-
-        is_protocol = (has_sub and tariff == "protocol_2500")
-        routine_text = db.format_approved_routine_for_llm(user_id) if is_protocol else "Пока нет сохраненных средств."
-        user_name = user.get("user_name") or "Клиент"
-        user_tags = user.get("user_tags", [])
-
-        result = await analyze_cosmetic_inci(
-            user_name=user_name,
-            user_tags=user_tags,
-            category=category,
-            raw_inci_text=raw_inci_text,
-            is_protocol_tariff=is_protocol,
-            approved_routine_text=routine_text
-        )
-
-        status_emoji = result.get("status_emoji")
-        clean_text = result.get("text_for_user", "")
-
-        if not status_emoji:
-            try:
-                await wait_msg.edit_text(clean_text or INVALID_INCI_TEXT)
-            except Exception:
-                await message.answer(clean_text or INVALID_INCI_TEXT)
-            return
-
-        allowed, reason = db.check_and_increment_scan_usage(user_id, is_paid_sub=has_sub)
-        if not allowed:
-            try:
-                await wait_msg.delete()
-            except Exception:
-                pass
-            if reason in ("daily_limit", "monthly_limit"):
-                await message.answer("Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿")
-            else:
-                await message.answer(
-                    PAYWALL_MESSAGE_TEXT,
-                    reply_markup=get_paywall_keyboard(),
-                    parse_mode="HTML"
-                )
-            return
-
-        record_id = None
-        if result.get("should_save_to_db"):
-            record_id = db.add_approved_product(
-                telegram_id=user_id,
-                category=category,
-                status=status_emoji,
-                stage=result["stage"],
-                key_actives=result["key_actives"]
-            )
-
-        try:
-            await wait_msg.delete()
-        except Exception:
-            pass
-
-        updated_user = db.get_user(user_id)
-        free_used_now = updated_user.get("free_scans_used", 0)
-
-        if has_sub:
-            extra_btn = None
-            if is_protocol and record_id is not None:
-                extra_btn = InlineKeyboardButton(
-                    text="🗑 Я только смотрю в магазине (Не добавлять в мой уход)",
-                    callback_data=f"remove_item:{record_id}"
-                )
-            await message.answer(
-                clean_text,
-                reply_markup=get_categories_keyboard(extra_top_button=extra_btn)
-            )
-        else:
-            await message.answer(clean_text)
-            if free_used_now == 1:
-                await message.answer(
-                    WARMUP_AFTER_FIRST_SCAN_TEXT,
-                    reply_markup=get_categories_keyboard(),
-                    parse_mode="HTML"
-                )
-            else:
-                await message.answer(
-                    PAYWALL_MESSAGE_TEXT,
-                    reply_markup=get_paywall_keyboard(),
-                    parse_mode="HTML"
-                )
-
-
-@dp.message(F.photo)
-async def handle_photo_message(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    username = message.from_user.username
-    current_state = await state.get_state()
-
-    if current_state in SURVEY_ACTIVE_STATES:
-        await message.answer("Пожалуйста, завершите ответ на вопрос анкеты (текстом или кнопкой выше) ☝️")
-        return
-
-    if message.media_group_id is not None:
-        now = time.time()
-        mg_id = str(message.media_group_id)
-        for k in list(HANDLED_MEDIA_GROUPS.keys()):
-            if now - HANDLED_MEDIA_GROUPS[k] > 30:
-                del HANDLED_MEDIA_GROUPS[k]
-        if mg_id in HANDLED_MEDIA_GROUPS:
-            return
-        HANDLED_MEDIA_GROUPS[mg_id] = now
-        await message.answer("Пожалуйста, отправляйте строго по одной фотографии за раз, чтобы я проверил каждое средство отдельно. Ваша попытка сохранена.")
-        return
-
-    lock = get_user_lock(user_id)
-    if lock.locked():
-        await message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
-        return
-
-    if not await _ensure_user_can_scan(message, user_id, username, state):
-        return
-
+    telegram_id = message.from_user.id
+    user = db.get_or_create_user(telegram_id)
     data = await state.get_data()
-    selected_category = data.get("selected_category")
+    category_fsm = data.get("category", None)
 
-    async with lock:
-        ocr_msg = await message.answer("🔍 Считываю текст состава с фотографии...")
-        try:
-            photo = message.photo[-1]
-            file_info = await bot.get_file(photo.file_id)
-            bio = io.BytesIO()
-            await bot.download_file(file_info.file_path, destination=bio)
-            extracted_inci = await extract_inci_from_image_bytes(bio.getvalue())
-        except Exception:
-            extracted_inci = "NO_INCI_FOUND"
-
-        try:
-            await ocr_msg.delete()
-        except Exception:
-            pass
-
-        if not validate_inci_before_llm(extracted_inci):
-            await message.answer(INVALID_INCI_TEXT)
-            return
-
-        if not selected_category:
-            await state.update_data(pending_inci=extracted_inci)
-            await message.answer(
-                "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
-                reply_markup=get_categories_keyboard()
-            )
-            return
-
-    await state.update_data(selected_category=None, pending_inci=None)
-    await state.clear()
-    await execute_scan_with_lock(
-        message=message,
-        user_id=user_id,
-        username=username,
-        category=selected_category,
-        raw_inci_text=extracted_inci
-    )
-
-
-@dp.message(F.video | F.voice | F.sticker | F.document | F.audio | F.video_note | F.animation)
-async def handle_unsupported_media(message: types.Message, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state in SURVEY_ACTIVE_STATES:
-        await message.answer("Пожалуйста, введите ответ текстом или выберите кнопку выше.")
-        return
-    await message.answer("Отправьте обычную фотографию состава (или скриншот) либо скопируйте список ингредиентов текстом. Попытка сохранена.")
-
-
-@dp.message(F.text)
-async def handle_text_inci_or_buffer(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    username = message.from_user.username
-    current_state = await state.get_state()
-
-    if current_state in {
-        SurveyStates.q1.state, SurveyStates.q2.state, SurveyStates.q3.state,
-        SurveyStates.q4.state, SurveyStates.q5.state, SurveyStates.q6.state
-    }:
-        await message.answer("Пожалуйста, выберите вариант ответа с помощью кнопок под вопросом ☝️")
+    if not category_fsm:
+        await message.answer("⚠️ Сначала выберите категорию средства.", reply_markup=get_category_4_keyboard())
         return
 
-    lock = get_user_lock(user_id)
-    if lock.locked():
-        await message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
+    if not check_user_limits(user):
+        db.schedule_retention_notifications(telegram_id)
+        await send_paywall(message)
         return
 
-    if not await _ensure_user_can_scan(message, user_id, username, state):
+    photo = message.photo[-1]
+    b64 = await download_photo_as_base64(photo)
+    if not b64:
+        await message.answer("❌ Не удалось загрузить фото. Попробуйте ещё раз.")
         return
 
-    raw_text = message.text.strip()
-    if not validate_inci_before_llm(raw_text):
-        await message.answer(INVALID_INCI_TEXT)
-        return
+    photo_urls = data.get("photo_urls", [])
+    if not isinstance(photo_urls, list):
+        photo_urls = []
+    photo_urls.append(b64)
+    await state.update_data(photo_urls=photo_urls)
 
-    data = await state.get_data()
-    selected_category = data.get("selected_category")
-
-    if not selected_category:
-        await state.update_data(pending_inci=raw_text)
-        await message.answer(
-            "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
-            reply_markup=get_categories_keyboard()
-        )
-        return
-
-    await state.update_data(selected_category=None, pending_inci=None)
-    await state.clear()
-    await execute_scan_with_lock(
-        message=message,
-        user_id=user_id,
-        username=username,
-        category=selected_category,
-        raw_inci_text=raw_text
-    )
-
-
-async def send_admin_lead_card(user_data: dict, target_bot: Bot = bot):
-    telegram_id = user_data["telegram_id"]
-    user_name = user_data.get("user_name") or "Без имени"
-    username = user_data.get("username") or "нет_ника"
-    tags = user_data.get("user_tags", [])
-    medical = user_data.get("medical_note") or "нет"
-
-    card_text = (
-        f"🔔 Клиент открыл раздел готового ухода Марии (Шаг 6)\n"
-        f"👤 Имя: {user_name} (@{username}, код: `#{telegram_id}`)\n"
-        f"🏷 Теги кожи: {', '.join(tags) if tags else 'нет'}\n"
-        f"💊 Медицина / пометки: {medical}"
-    )
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏸ Пауза пушей на 72 часа", callback_data=f"admin_pause:{telegram_id}")],
-        [InlineKeyboardButton(text="✅ Купил(а) Бокс / PDF (Отключить пуши)", callback_data=f"admin_vip:{telegram_id}")]
-    ])
-
-    try:
-        await target_bot.send_message(ADMIN_ID, card_text, reply_markup=kb, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Не удалось отправить лид администратору ADMIN_ID: {e}")
-
-
-@dp.callback_query(F.data.startswith("branch_maria:"))
-async def branch_maria_cb(callback: types.CallbackQuery):
-    scenario = callback.data.split(":")[1]
-    user_id = callback.from_user.id
-    user = db.get_or_create_user(user_id, callback.from_user.username)
-    user_name = user.get("user_name") or callback.from_user.first_name or "Клиент"
-
-    asyncio.create_task(send_admin_lead_card(user))
-
-    intro = "Прекрасный выбор. Чистый лист — это идеальная возможность сразу выстроить грамотный фундамент. Вы можете заказать у Марии:\n\n" if scenario == "2" else "Прекрасный выбор. Вы можете заказать у Марии:\n\n"
-
-    await callback.message.answer(
-        intro + MARIA_PRODUCTS_DESCRIPTION,
-        reply_markup=get_step6_maria_keyboard(user_name, user_id),
-        parse_mode="HTML"
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data.startswith("admin_pause:"))
-async def admin_pause_cb(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("У вас нет прав администратора.", show_alert=True)
-        return
-
-    target_id = int(callback.data.split(":")[1])
-    db.set_maria_order_status(target_id, "paused_72h")
-
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.edit_text(callback.message.text + "\n\n⏸ <b>Пуши остановлены на 72ч</b>", parse_mode="HTML")
-    except Exception:
-        pass
-    await callback.answer("Пауза пушей на 72 часа установлена.")
-
-
-@dp.callback_query(F.data.startswith("admin_vip:"))
-async def admin_vip_cb(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("У вас нет прав администратора.", show_alert=True)
-        return
-
-    target_id = int(callback.data.split(":")[1])
-    db.set_maria_order_status(target_id, "completed_vip")
-
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.edit_text(callback.message.text + "\n\n✅ <b>Клиент переведен в статус VIP (Пуши отключены навсегда)</b>", parse_mode="HTML")
-    except Exception:
-        pass
-    await callback.answer("Клиент переведен в VIP, воронка дожима отключена.")
-
-
-@dp.message(F.text.regexp(r"#(\d+)"))
-async def admin_search_client_by_hashtag(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    match = re.search(r"#(\d+)", message.text)
-    if not match:
-        return
-
-    target_id = int(match.group(1))
-    client_data = db.get_user(target_id)
-    if not client_data:
-        await message.answer(f"Клиент с кодом #{target_id} не найден в базе.")
-        return
-
-    await send_admin_lead_card(client_data, message.bot)
-
-
-@dp.message(Command("profile"))
-async def cmd_profile(message: types.Message):
-    user_id = message.from_user.id
-    user = db.get_or_create_user(user_id, message.from_user.username)
-    user_name = user.get("user_name") or message.from_user.first_name or "Не указано"
-    tags_list = user.get("user_tags", [])
-    tags_str = ", ".join(tags_list) if tags_list else "Анкета еще не пройдена"
-    free_used = user.get("free_scans_used", 0)
-
-    has_sub, tariff = db.has_active_scanner_sub(user_id)
-    expires_raw = user.get("scanner_expires_at")
-    expires_fmt = datetime.fromisoformat(expires_raw).strftime("%d.%m.%Y %H:%M") if expires_raw else ""
-
-    if not has_sub:
-        await message.answer(
-            f"👤 Имя: {user_name}\n"
-            f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Статус доступа: Неактивен (Использовано бесплатных проверок: {free_used} из 2).\n"
-            f"Выберите тариф в меню /tariffs, чтобы включить сканер составов."
-        )
-    elif tariff == "audit_1000":
-        await message.answer(
-            f"👤 Имя: {user_name}\n"
-            f"Тариф: 💳 Аудит (Безлимитный сканер)\n"
-            f"Активен до: {expires_fmt}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="branch_roman")]
-            ])
-        )
-    elif tariff == "protocol_2500":
-        items = db.get_approved_products(user_id)
-        await message.answer(
-            f"👤 Имя: {user_name}\n"
-            f"Тариф: 💎 Сборка протокола\n"
-            f"Активен до: {expires_fmt}\n"
-            f"Одобренных средств в вашей схеме: {len(items)} шт.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="branch_roman")],
-                [InlineKeyboardButton(text="🗂 Моя собранная база (Просмотр / Удаление)", callback_data="view_routine")]
-            ])
-        )
-
-
-@dp.callback_query(F.data == "view_routine")
-async def view_routine_cb(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    items = db.get_approved_products(user_id)
-    if not items:
-        await callback.answer("В вашей схеме пока нет сохраненных средств.", show_alert=True)
-        return
-
-    lines = ["🗂 <b>Ваша собранная база средств:</b>\n"]
-    buttons = []
-    for idx, item in enumerate(items, start=1):
-        lines.append(f"{idx}. {item['status']} <b>{item['stage']}</b> — {item['key_actives']}")
-        buttons.append([InlineKeyboardButton(text=f"🗑 Удалить #{idx} ({item['stage']})", callback_data=f"del_routine:{item['id']}")])
-
-    await callback.message.answer(
-        "\n".join(lines),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        parse_mode="HTML"
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data.startswith("del_routine:"))
-async def delete_routine_item_cb(callback: types.CallbackQuery):
-    record_id = int(callback.data.split(":")[1])
-    db.remove_approved_product(record_id, callback.from_user.id)
-    await callback.answer("✅ Средство удалено из вашей схемы.")
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-    await view_routine_cb(callback)
-
-
-@dp.callback_query(F.data.startswith("remove_item:"))
-async def remove_item_after_scan_cb(callback: types.CallbackQuery):
-    record_id = int(callback.data.split(":")[1])
-    db.remove_approved_product(record_id, callback.from_user.id)
-    confirmed_btn = InlineKeyboardButton(text="✅ Средство удалено из вашей схемы", callback_data="noop")
-    try:
-        await callback.message.edit_reply_markup(reply_markup=get_categories_keyboard(extra_top_button=confirmed_btn))
-    except Exception:
-        pass
-    await callback.answer("Средство удалено из вашей схемы")
-
-
-@dp.callback_query(F.data == "noop")
-async def noop_cb(callback: types.CallbackQuery):
-    await callback.answer()
-
-
-@dp.message(Command("tariffs"))
-async def cmd_tariffs(message: types.Message):
     await message.answer(
-        "🤖 Роман Андреевич: Выберите формат работы с алгоритмом или закажите готовую систему у Марии:\n\n"
-        "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>: безлимитный сканер составов и защита от скрытых угроз.\n"
-        "💎 <b>СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>: интеллектуальная память бота, выстраивание системы ухода без пробелов и контроль конфликтов.\n"
-        "📦 <b>ГОТОВЫЙ УХОД</b>: Индивидуальный Бокс или PDF-протокол от создателя проекта.",
-        reply_markup=get_paywall_keyboard(),
-        parse_mode="HTML"
+        f"📸 Фото добавлено.\n\nМожете отправить ещё фото или нажмите «Анализировать».",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
+        ])
     )
 
 
-@dp.callback_query(F.data.startswith("buy:"))
-async def buy_tariff_placeholder_cb(callback: types.CallbackQuery):
-    tariff_code = callback.data.split(":")[1]
-    if tariff_code in ("audit_1000", "protocol_2500", "pdf_4900"):
-        db.process_successful_payment(
-            payment_id=f"test_pay_{int(time.time())}",
-            telegram_id=callback.from_user.id,
-            amount=1000 if tariff_code=="audit_1000" else (2500 if tariff_code=="protocol_2500" else 4900),
-            tariff_type=tariff_code
-        )
-        await callback.message.answer(f"✅ Оплата успешно симулирована! Тариф активирован, воронка дожима отключена.")
+@dp.message(StateFilter(Form.waiting_for_composition), F.video | F.voice | F.audio | F.sticker | F.document)
+async def reject_other_media(message: types.Message):
+    await message.answer(
+        "Отправьте обычную фотографию состава (или скриншот) либо скопируйте список ингредиентов текстом. "
+        "Попытка сохранена."
+    )
+
+
+@dp.callback_query(F.data == "analyze_photos")
+async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
+    telegram_id = callback.from_user.id
+    user = db.get_or_create_user(telegram_id)
+    data = await state.get_data()
+    photo_urls = data.get("photo_urls", [])
+    category_fsm = data.get("category", None)
+
+    if not photo_urls:
+        await callback.answer("Фото не найдены. Отправьте их ещё раз.", show_alert=True)
+        return
+
+    if not check_user_limits(user):
+        db.schedule_retention_notifications(telegram_id)
+        await send_paywall(callback.message)
         await callback.answer()
         return
 
+    lock = get_user_lock(telegram_id)
+    if lock.locked():
+        await callback.message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
+        await callback.answer()
+        return
 
-async def background_retention_and_push_worker():
-    logger.info("⏰ Фоновый воркер пушей (ТЗ v4.0) запущен")
-    while True:
+    async with lock:
+        user = db.get_or_create_user(telegram_id)
+        if not check_user_limits(user):
+            db.schedule_retention_notifications(telegram_id)
+            await send_paywall(callback.message)
+            await callback.answer()
+            return
+
+        if telegram_id not in UNLIMITED_IDS:
+            limit_status = db.check_rate_limit(telegram_id)
+            if limit_status:
+                if limit_status == "day":
+                    await callback.message.answer("Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿")
+                else:
+                    await callback.message.answer("⏳ Слишком много запросов. Пожалуйста, подождите немного.")
+                await callback.answer()
+                return
+
+        user_name = await _resolve_user_name(callback.message, state, user)
+        category = category_fsm
+        tariff = get_user_tariff(user)
+
+        loading_msg = await callback.message.answer("🔍 Распознаю текст с фотографии...")
+
         try:
-            conn = db.get_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE survey_done = 1")
-            users = [dict(r) for r in cursor.fetchall()]
-            conn.close()
-
-            now = datetime.now()
-
-            for u in users:
-                uid = u["telegram_id"]
-                maria_status = u.get("maria_order_status", "none")
-                pause_until_str = u.get("pause_until")
-
-                if maria_status == "completed_vip":
-                    continue
-                if pause_until_str:
-                    try:
-                        if datetime.fromisoformat(pause_until_str) > now:
-                            continue
-                    except Exception:
-                        pass
-
-                has_sub, tariff = db.has_active_scanner_sub(uid)
-
-                last_act_str = u.get("last_activity_at") or u.get("created_at")
-                try:
-                    last_act = datetime.fromisoformat(last_act_str)
-                except Exception:
-                    last_act = now
-                elapsed_hours = (now - last_act).total_seconds() / 3600.0
-
-                if not has_sub and tariff == "none" and maria_status in ("none", "paused_72h"):
-                    push_schedule = [
-                        (2.0, "p_2h", "🤖 {user_name}, вы остановились на этапе активации. Ваша анкета сохранена. Чтобы я мог завершить химический анализ вашего ухода и выстроить протокол безопасности, необходимо завершить оформление. Я готов приступить к работе.", get_paywall_keyboard()),
-                        (24.0, "p_24h", "🤖 Прошли сутки с момента паузы. Напоминаю, что каждый день использования неподходящей косметики усугубляет состояние барьера. Если в ваших баночках есть скрытые угрозы, вы наносите их прямо сейчас. Давайте остановим этот процесс. Открываем доступ?", get_paywall_keyboard()),
-                        (48.0, "p_48h", "🤖 Я технически закрываю ваш незаконченный сеанс. Данные заархивированы. Если решите навести порядок в уходе, перестать тратить деньги на агрессивные средства и доверить сборку системы алгоритму — возвращайтесь.", get_paywall_keyboard()),
-                        (120.0, "p_5d", "🤖 {user_name}, наверняка вы снова смотрели на косметику на маркетплейсах. Красивые обещания часто маскируют дешевую базу и пустышки. Не покупайте новые средства вслепую. Загрузите составы мне перед оплатой, и я уберегу вас от пустой траты денег.", get_paywall_keyboard()),
-                        (168.0, "p_7d", "🤖 Прошла неделя. За это время вы нанесли свой привычный уход минимум 14 раз. Если мы не исключили из вашей системы жесткие ПАВы или конфликтные активы, вы значительно усилили дефицит липидов. Доступ к системе ждет активации.", get_paywall_keyboard()),
-                        (240.0, "p_10d", "🤖 {user_name}, алгоритмы соцсетей продолжают продавать вам «волшебные» банки. Блогеры рекомендуют агрессивные активы, не зная вашей физиологии. Прежде чем оплатить корзину — пропустите состав через мою матрицу безопасности.", get_paywall_keyboard()),
-                        (336.0, "p_14d", "🤖 {user_name}, если у вас нет времени самостоятельно сканировать каждый состав — снимите с себя эту задачу. Создатель моего алгоритма, Мария, может собрать для вас индивидуальный протокол с нуля или отправить готовый бокс.", InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="branch_maria:1")]])),
-                        (504.0, "p_21d", "🤖 {user_name}, пока гидролипидная мантия не восстановлена, кожа находится в состоянии перманентного стресса. Кожа в стрессе увядает в разы быстрее — появляются преждевременные морщины. Нам нужно срочно выстроить защитную архитектуру.", get_paywall_keyboard()),
-                        (720.0, "p_30d", "🤖 Прошел ровно месяц. 28–35 дней — это полный цикл обновления эпидермиса. Если вы устали действовать вслепую и готовы выстроить грамотную, физиологичную базу — двери лаборатории открыты.", get_paywall_keyboard()),
-                        (1440.0, "p_60d", "🤖 {user_name}, прошло два месяца. Изменились внешние факторы: температура, влажность. Кожа адаптировалась, и база, спасавшая вас раньше, может давать сбои. Необходимо провести аудит вашей системы и скорректировать протокол.", get_paywall_keyboard()),
-                        (2160.0, "p_90d", "🤖 {user_name}, 90 дней — критический срок (PAO) для многих активов. Витамин С окисляется, пептиды теряют стабильность. Наносить такую косметику небезопасно. Пришло время провести ревизию и собрать новую архитектуру ухода.", get_paywall_keyboard()),
-                        (4320.0, "p_180d", "🤖 Полгода назад вы инициировали запуск алгоритма. У вас есть два пути: активировать алгоритм и жестко фильтровать каждую банку, либо делегировать это Марии и получить готовый бокс. Выбор за вами.", InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💳 Аудит — 1000 ₽", callback_data="buy:audit_1000")], [InlineKeyboardButton(text="💎 Сборка — 2500 ₽", callback_data="buy:protocol_2500")], [InlineKeyboardButton(text="👑 Уход от Марии", callback_data="branch_maria:1")]]))
-                    ]
-
-                    for req_hours, p_key, p_text, p_kb in push_schedule:
-                        if elapsed_hours >= req_hours:
-                            if not db_push_already_sent(uid, p_key):
-                                formatted_text = p_text.format(user_name=u.get("user_name") or "Клиент")
-                                try:
-                                    await bot.send_message(uid, formatted_text, reply_markup=p_kb, parse_mode="HTML")
-                                    db_mark_push_sent(uid, p_key)
-                                except Exception:
-                                    pass
-                                await asyncio.sleep(0.3)
-
-                elif has_sub and u.get("scanner_expires_at"):
-                    try:
-                        exp_dt = datetime.fromisoformat(u["scanner_expires_at"])
-                        time_left_days = (exp_dt - now).total_days()
-                        if 0 <= time_left_days <= 1.0:
-                            p_key = f"sub_renew_{exp_dt.strftime('%Y%m%d')}"
-                            if not db_push_already_sent(uid, p_key):
-                                safe_name = u.get("user_name") or "Клиент"
-                                if tariff == "audit_1000":
-                                    renew_text = (
-                                        f"🤖 {safe_name}, завтра ваш доступ к сканирующему модулю закрывается.\n"
-                                        "Не покупайте новые средства вслепую. Одно средство с жесткими ПАВами или комедогенной базой "
-                                        "может спровоцировать воспаление и откатить результаты назад. Продлите «Аудит», чтобы я продолжил "
-                                        "жестко фильтровать ваши покупки.\n\n"
-                                        "⬆️ Или перейдите на следующий уровень: выберите «Сборку протокола»."
-                                    )
-                                    renew_kb = InlineKeyboardMarkup(inline_keyboard=[
-                                        [InlineKeyboardButton(text="💳 Продлить Аудит (30 дн.) — 1000 ₽", callback_data="buy:audit_1000")],
-                                        [InlineKeyboardButton(text="💎 Перейти на Сборку протокола — 2500 ₽", callback_data="buy:protocol_2500")]
-                                    ])
-                                else:
-                                    renew_text = (
-                                        f"🤖 {safe_name}, наш месяц работы подходит к концу. За 28–35 дней эпидермис проходит полный цикл обновления. "
-                                        "Завтра ваш доступ к алгоритму закрывается.\n\n"
-                                        "Давайте подведем итоги. Ваша собранная база защищена, теперь вы можете продлить доступ:"
-                                    )
-                                    renew_kb = InlineKeyboardMarkup(inline_keyboard=[
-                                        [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дн.) — 2500 ₽", callback_data="buy:protocol_2500")],
-                                        [InlineKeyboardButton(text="💳 Перейти на базовый Аудит (30 дн.) — 1000 ₽", callback_data="buy:audit_1000")],
-                                        [InlineKeyboardButton(text="👑 Устала искать сама. Нужен готовый уход от Марии", callback_data="branch_maria:1")]
-                                    ])
-
-                                await bot.send_message(uid, renew_text, reply_markup=renew_kb)
-                                db_mark_push_sent(uid, p_key)
-                    except Exception:
-                        pass
-
+            await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
 
-        await asyncio.sleep(60)
+        extracted_text = await extract_text_from_photos(photo_urls)
 
+        if not validate_inci_text(extracted_text):
+            await loading_msg.edit_text(
+                "Не удалось распознать полный список компонентов (INCI).\n\n"
+                "Пожалуйста, убедитесь, что на фото четко виден текст после слова Состав / Ingredients "
+                "без обрезанных краев (либо скопируйте состав текстом из карточки товара).\n\n"
+                "Ваша попытка не списалась!"
+            )
+            await callback.answer()
+            return
 
-def db_push_already_sent(telegram_id: int, push_key: str) -> bool:
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM sent_pushes WHERE telegram_id = ? AND push_key = ?", (telegram_id, push_key))
-    row = cursor.fetchone()
-    conn.close()
-    return row is not None
+        db.log_scan(telegram_id)
+        await loading_msg.edit_text("🔬 Анализирую состав...")
 
+        tags = user.get("user_tags", [])
 
-def db_mark_push_sent(telegram_id: int, push_key: str):
-    conn = db.get_connection()
-    try:
-        conn.execute(
-            "INSERT OR IGNORE INTO sent_pushes (telegram_id, push_key, sent_at) VALUES (?, ?, ?)",
-            (telegram_id, push_key, datetime.now().isoformat())
+        approved_routine = ""
+        if tariff == "protocol":
+            products = db.get_approved_products(telegram_id)
+            if products:
+                lines = []
+                for p in products:
+                    lines.append(f"Этап: {p['stage']} | Статус: {p['status']} | Активы: {p['key_actives']}")
+                approved_routine = "\n".join(lines)
+
+        result = await analyze_composition(extracted_text, tags, user_name, category, tariff, approved_routine)
+        clean_text = result["verdict"]
+        stage = result["stage"]
+        actives = result["key_actives"]
+        status = result["status"]
+
+        if status not in ANALYZABLE_STATUSES:
+            await loading_msg.edit_text(
+                "⚠️ Модель не смогла выдать вердикт по этому составу. Попробуйте ещё раз — лимит не списан."
+            )
+            await callback.answer()
+            return
+
+        record_id = None
+        if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
+            record_id = db.save_approved_product(telegram_id, f"[ФОТО] {extracted_text[:100]}...", status, category, stage, actives)
+
+        db.save_analysis(telegram_id, f"[ФОТО] {extracted_text[:100]}...", clean_text, status)
+
+        if status in ["bad", "hidden_threat"]:
+            db.increment_bad_bottles(telegram_id)
+        else:
+            db.reset_bad_bottles(telegram_id)
+
+        is_unlimited = (telegram_id in UNLIMITED_IDS)
+        has_sub = db.has_active_subscription(user)
+        is_protocol = user.get("scanner_tariff") == "protocol_2500" and has_sub
+
+        if is_unlimited:
+            await loading_msg.edit_text(clean_text)
+            await callback.message.answer("👑 Режим безлимита: проверок не ограничено.")
+        elif not has_sub:
+            db.increment_free_scans_used(telegram_id)
+            updated_user = db.get_or_create_user(telegram_id)
+            remaining = 2 - updated_user.get("free_scans_used", 0)
+
+            await loading_msg.edit_text(clean_text)
+
+            if remaining == 1:
+                await callback.message.answer(WARMUP_TEXT, reply_markup=get_category_4_keyboard(), parse_mode="HTML")
+                await state.update_data(category=None, photo_urls=[])
+                await callback.answer()
+                return
+            elif remaining <= 0:
+                db.schedule_retention_notifications(telegram_id)
+                await send_paywall(callback.message)
+                await state.update_data(category=None, photo_urls=[])
+                await callback.answer()
+                return
+        else:
+            await loading_msg.edit_text(clean_text)
+
+        rows = []
+        if is_protocol and record_id:
+            rows.append([InlineKeyboardButton(
+                text="🗑 Я только смотрю в магазине (Не добавлять в мой уход)",
+                callback_data=f"remove_item:{record_id}"
+            )])
+        rows.extend(get_category_4_keyboard().inline_keyboard)
+        kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+        await state.update_data(category=None, photo_urls=[])
+        await callback.message.answer(
+            "Проверим следующее средство? Выберите категорию 👇",
+            reply_markup=kb
         )
-        conn.commit()
+
+    await callback.answer()
+
+
+@dp.message(StateFilter(Form.waiting_for_composition))
+async def process_composition(message: types.Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    user = db.get_or_create_user(telegram_id)
+    data = await state.get_data()
+
+    if data.get("photo_urls"):
+        await message.answer(
+            "📸 У вас уже есть загруженные фото. Нажмите «Анализировать» или отправьте ещё фото.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
+            ])
+        )
+        return
+
+    category_fsm = data.get("category", None)
+
+    if not category_fsm:
+        await message.answer("⚠️ Сначала выберите категорию средства.", reply_markup=get_category_4_keyboard())
+        return
+
+    if not check_user_limits(user):
+        db.schedule_retention_notifications(telegram_id)
+        await send_paywall(message)
+        return
+
+    composition = sanitize_input(message.text or "", max_len=2000)
+
+    if not validate_inci_text(composition):
+        await message.answer(
+            "Не удалось распознать полный список компонентов (INCI).\n\n"
+            "Пожалуйста, убедитесь, что текст содержит список ингредиентов после слова Состав / Ingredients, "
+            "либо пришлите фото этикетки.\n\n"
+            "Ваша попытка не списалась!"
+        )
+        return
+
+    await perform_analysis(message, state, user, composition, category_fsm)
+
+
+@dp.message(F.text & ~F.text.startswith('/'))
+async def handle_text_no_state(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
+
+    telegram_id = message.from_user.id
+    user = db.get_or_create_user(telegram_id)
+
+    if user.get("survey_done", 0) == 0:
+        await message.answer("Пожалуйста, сначала пройдите короткую диагностику.", reply_markup=get_start_keyboard())
+        return
+
+    if not check_user_limits(user):
+        await send_paywall(message)
+        return
+
+    composition = sanitize_input(message.text or "", max_len=2000)
+    if not validate_inci_text(composition):
+        await message.answer(
+            "Не удалось распознать полный список компонентов (INCI).\n\n"
+            "Пожалуйста, убедитесь, что текст содержит список ингредиентов после слова Состав / Ingredients, "
+            "либо пришлите фото этикетки.\n\n"
+            "Ваша попытка не списалась!"
+        )
+        return
+
+    await state.update_data(pending_inci=composition)
+    await message.answer(
+        "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
+        reply_markup=get_category_4_keyboard()
+    )
+    await state.set_state(Form.waiting_for_category)
+
+
+@dp.message(F.photo)
+async def handle_photo_no_state(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
+
+    telegram_id = message.from_user.id
+    user = db.get_or_create_user(telegram_id)
+
+    if user.get("survey_done", 0) == 0:
+        await message.answer("Пожалуйста, сначала пройдите короткую диагностику.", reply_markup=get_start_keyboard())
+        return
+
+    if not check_user_limits(user):
+        await send_paywall(message)
+        return
+
+    if message.media_group_id:
+        await message.answer(
+            "Пожалуйста, отправляйте строго по одной фотографии за раз, чтобы я проверил каждое средство отдельно. "
+            "Ваша попытка сохранена."
+        )
+        return
+
+    photo = message.photo[-1]
+    b64 = await download_photo_as_base64(photo)
+    if not b64:
+        await message.answer("❌ Не удалось загрузить фото. Попробуйте ещё раз.")
+        return
+
+    loading_msg = await message.answer("🔍 Распознаю текст с фотографии...")
+    extracted_text = await extract_text_from_photos([b64])
+
+    if not validate_inci_text(extracted_text):
+        await loading_msg.edit_text(
+            "Не удалось распознать полный список компонентов (INCI).\n\n"
+            "Пожалуйста, убедитесь, что на фото четко виден текст после слова Состав / Ingredients "
+            "без обрезанных краев (либо скопируйте состав текстом из карточки товара).\n\n"
+            "Ваша попытка не списалась!"
+        )
+        return
+
+    await state.update_data(pending_inci=extracted_text)
+    await loading_msg.edit_text(
+        "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
+        reply_markup=get_category_4_keyboard()
+    )
+    await state.set_state(Form.waiting_for_category)
+
+
+@dp.message(F.video | F.voice | F.audio | F.sticker | F.document)
+async def reject_other_media_no_state(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
+
+    await message.answer(
+        "Отправьте обычную фотографию состава (или скриншот) либо скопируйте список ингредиентов текстом. "
+        "Попытка сохранена."
+    )
+
+
+@dp.callback_query(F.data.startswith("remove_item:"))
+async def remove_item(callback: types.CallbackQuery, state: FSMContext):
+    record_id = int(callback.data.split(":")[1])
+    db.delete_approved_product(record_id)
+
+    rows = [[InlineKeyboardButton(text="✅ Средство удалено из вашей схемы", callback_data="ignore")]]
+    rows.extend(get_category_4_keyboard().inline_keyboard)
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=kb)
     except Exception:
         pass
-    finally:
-        conn.close()
+
+    await callback.answer("Средство удалено из вашего протокола.")
 
 
-async def setup_bot_commands():
-    commands = [
-        BotCommand(command="profile", description="👤 Мой статус"),
-        BotCommand(command="tariffs", description="💳 Тарифы и оплата"),
-        BotCommand(command="start", description="🔄 Перезапустить диагностику"),
-    ]
-    await bot.set_my_commands(commands)
+@dp.callback_query(F.data.startswith("toggle_stage:"))
+async def toggle_stage(callback: types.CallbackQuery):
+    telegram_id = callback.from_user.id
+    stage_key = callback.data.split(":")[1]
 
+    stages = db.get_user_stages(telegram_id)
+    new_val = not stages.get(stage_key, False)
+    db.set_user_stage(telegram_id, stage_key, new_val)
 
-async def main():
-    logger.info("🚀 Бот (Финальная сборка ТЗ v4.0 с кнопкой Назад) запущен!")
+    kb = build_stage_keyboard(telegram_id)
     try:
-        await setup_bot_commands()
-    except Exception as e:
-        logger.warning(f"Не удалось установить команды меню: {e}")
+        await callback.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        pass
+    await callback.answer()
 
-    await bot.delete_webhook(drop_pending_updates=True)
-    asyncio.create_task(background_retention_and_push_worker())
-    await dp.start_polling(bot)
+
+@dp.callback_query(F.data == "finish_audit")
+async def finish_audit(callback: types.CallbackQuery):
+    telegram_id = callback.from_user.id
+    stages = db.get_user_stages(telegram_id)
+    checked_count = sum(1 for v in stages.values() if v)
+
+    if checked_count == 4:
+        text = (
+            "🤖 Идеально. Базовая архитектура выстроена, барьер защищен. Теперь мы переходим на следующий уровень. "
+            "Начинаем аккуратно вводить «тяжелую артиллерию» (кислоты, витамин С, ретинол). "
+            "Я проконтролирую, чтобы новые активы не сожгли лицо и не конфликтовали с базой. "
+            "Продлите доступ, чтобы открыть следующий уровень 👇"
+        )
+    else:
+        text = (
+            "🤖 Я вижу незакрытые этапы. Оставлять архитектуру ухода с пробелами — значит продолжать терять липиды. "
+            "Мы продолжаем работу. Я буду сканировать составы и блокировать агрессивные компоненты, "
+            "пока мы не закроем каждый базовый этап. Продлите доступ, чтобы мы завершили сборку 👇"
+        )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
+        [InlineKeyboardButton(text="💳 Перейти на базовый Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
+        [InlineKeyboardButton(text="👑 Устала искать сама. Нужен готовый уход от Марии", callback_data="want_mariya_box")]
+    ])
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb)
+
+    await callback.answer()
+
+
+# =====================================================================
+# АДМИН-ПУЛЬТ: обработчики кнопок-глушилок
+# =====================================================================
+
+def _is_admin(user_id: int) -> bool:
+    return user_id == ADMIN_ID
+
+
+@dp.callback_query(F.data.startswith("admin_pause:"))
+async def admin_pause(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    try:
+        tid = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Повреждённые данные кнопки", show_alert=True)
+        return
+
+    db.set_maria_order_status(tid, "paused_72h")
+
+    try:
+        db.delay_retention_notifications(tid, hours=72)
+    except Exception as e:
+        logger.error(f"Не удалось отложить пуши для {tid}: {e}")
+        await callback.answer("⚠️ Статус сохранён, но пуши не перенеслись. Проверьте логи.",
+                              show_alert=True)
+        return
+
+    try:
+        original = callback.message.html_text or callback.message.text or ""
+        await callback.message.edit_text(
+            f"{original}\n\n⏸ <b>Пуши остановлены на 72ч</b>",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось отредактировать карточку {tid}: {e}")
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+    await callback.answer("Пуши отложены на 72 часа", show_alert=True)
+    logger.info(f"⏸ admin_pause: клиент {tid} → paused_72h (админ {callback.from_user.id})")
+
+
+@dp.callback_query(F.data.startswith("admin_vip:"))
+async def admin_vip(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    try:
+        tid = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Повреждённые данные кнопки", show_alert=True)
+        return
+
+    db.set_maria_order_status(tid, "completed_vip")
+
+    try:
+        db.cancel_retention_notifications(tid)
+    except Exception as e:
+        logger.error(f"Не удалось отменить пуши для {tid}: {e}")
+        await callback.answer("⚠️ Статус сохранён, но пуши не отменены. Проверьте логи.",
+                              show_alert=True)
+        return
+
+    try:
+        original = callback.message.html_text or callback.message.text or ""
+        await callback.message.edit_text(
+            f"{original}\n\n✅ <b>Клиент переведен в статус VIP (Пуши отключены навсегда)</b>",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось отредактировать карточку {tid}: {e}")
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+    await callback.answer("Клиент помечен как VIP, пуши отключены", show_alert=True)
+    logger.info(f"✅ admin_vip: клиент {tid} → completed_vip (админ {callback.from_user.id})")
+
+
+# =====================================================================
+# АДМИН-ПУЛЬТ: поиск клиента по хэштегу #telegram_id
+# =====================================================================
+
+@dp.message(F.from_user.id == ADMIN_ID, F.text.regexp(r"#\d{5,}"))
+async def admin_search_client(message: types.Message, state: FSMContext):
+    if await state.get_state() is not None:
+        return
+
+    match = re.search(r"#(\d{5,})", message.text)
+    if not match:
+        return
+
+    tid = int(match.group(1))
+
+    user = db.get_user(tid)
+    if not user:
+        await message.answer(f"❌ Клиент с кодом <code>#{tid}</code> не найден в базе",
+                             parse_mode="HTML")
+        logger.info(f"🔍 admin_search: клиент #{tid} не найден (искал {message.from_user.id})")
+        return
+
+    ok = await send_client_card_to_admin(user, log_lead=False)
+    if not ok:
+        await message.answer("⚠️ Карточка не отправлена (см. логи). Проверьте, что админ доступен.")
+    else:
+        logger.info(f"🔍 admin_search: карточка #{tid} отправлена (искал {message.from_user.id})")
+
+
+# =====================================================================
+# АДМИН-ПАНЕЛЬ /admin
+# =====================================================================
+
+@dp.message(F.text == "/admin")
+async def cmd_admin(message: types.Message):
+    telegram_id = message.from_user.id
+    if telegram_id not in [OWNER_ID, MARIYA_ID, ADMIN_ID]:
+        await message.answer("⛔ У вас нет доступа к этой команде.")
+        return
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM users")
+    total_users = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM users WHERE survey_done = 1")
+    surveyed_users = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM users WHERE scanner_expires_at > ?", (datetime.now().isoformat(),))
+    active_subs = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM leads WHERE status = 'new'")
+    new_leads = cur.fetchone()[0]
+
+    conn.close()
+
+    text = (
+        "👑 <b>Админ-панель</b>\n\n"
+        f"👥 Всего пользователей: {total_users}\n"
+        f"📋 Прошли анкету: {surveyed_users}\n"
+        f"💳 Активных подписок: {active_subs}\n"
+        f"🆕 Новых заявок (лидов): {new_leads}\n"
+    )
+    await message.answer(text, parse_mode="HTML")
+
+
+# =====================================================================
+# ENTRY POINT
+# =====================================================================
+async def main():
+    asyncio.create_task(retention_worker())
+
+    try:
+        await bot.set_my_commands([
+            BotCommand(command="start",   description="Запуск"),
+            BotCommand(command="profile", description="Профиль и тариф"),
+            BotCommand(command="tariffs", description="Тарифы"),
+            BotCommand(command="admin",   description="Админ-панель"),
+        ])
+    except Exception as e:
+        logger.warning(f"Не удалось установить команды: {e}")
+
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        pass
+
+    logger.info("🚀 Бот запущен в режиме polling")
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("⛔ Бот остановлен")
