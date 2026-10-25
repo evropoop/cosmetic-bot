@@ -1,7 +1,6 @@
 import os
 import re
 import base64
-import asyncio
 import logging
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
@@ -10,7 +9,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Клиент Polza AI (использует твой ключ OPENAI_API_KEY из .env)
+# Клиент Polza AI через OpenAI SDK
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     base_url="https://polza.ai/api/v1",
@@ -18,22 +17,20 @@ client = AsyncOpenAI(
     max_retries=2
 )
 
-# Основная модель анализа (Claude Sonnet) и легкие модели для OCR (Блок 8, п. 3)
 SONNET_MODEL = os.getenv("SONNET_MODEL", "anthropic/claude-sonnet-4.5")
+
+# Используем Kimi K3.1 Pro в качестве основного OCR-инструмента
 OCR_MODELS = [
-    os.getenv("OCR_MODEL", "google/gemini-2.0-flash-lite-001"),
-    "qwen/qwen-2.5-vl-7b-instruct",
-    "google/gemini-2.0-flash-001",
+    "moonshotai/kimi-k3.1-pro",
+    "anthropic/claude-sonnet-4.5",
 ]
 
-# Системная инструкция для легкого OCR-сканера (Блок 8, п. 3, Шаг Б)
 OCR_SYSTEM_PROMPT = (
     "Ты OCR-сканер. Извлеки с изображения ТОЛЬКО список ингредиентов косметики (INCI). "
     "Категорически запрещено угадывать или дописывать обрезанные по краям флакона слова по памяти. "
     "Если на фото нет состава (менее 3 компонентов) или края строк обрезаны на изгибе баночки так, "
     "что состав нечитаем, верни строго одно слово: NO_INCI_FOUND"
 )
-
 # =====================================================================
 # 1. СТАТИЧНОЕ ЯДРО ПРОМПТА (КЭШИРУЕТСЯ НА 90% ДЛЯ ВСЕХ КАТЕГОРИЙ)
 # =====================================================================
