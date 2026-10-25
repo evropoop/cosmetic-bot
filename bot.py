@@ -179,8 +179,8 @@ Q5_OPTIONS = [
 def build_q1_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
     buttons = []
     for idx, (label, _) in enumerate(Q1_OPTIONS):
-        mark = "✅" if idx in selected_indices else "[ ]"
-        buttons.append([InlineKeyboardButton(text=f"{mark} {label}", callback_data=f"q1_toggle:{idx}")])
+        mark = "✅ " if idx in selected_indices else ""
+        buttons.append([InlineKeyboardButton(text=f"{mark}{label}", callback_data=f"q1_toggle:{idx}")])
     buttons.append([InlineKeyboardButton(text="Далее ➔", callback_data="q1_next")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -195,8 +195,8 @@ def build_single_choice_keyboard(options: list, prefix: str) -> InlineKeyboardMa
 def build_q5_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
     buttons = []
     for idx, (label, _) in enumerate(Q5_OPTIONS):
-        mark = "✅" if idx in selected_indices else "[ ]"
-        buttons.append([InlineKeyboardButton(text=f"{mark} {label}", callback_data=f"q5_toggle:{idx}")])
+        mark = "✅ " if idx in selected_indices else ""
+        buttons.append([InlineKeyboardButton(text=f"{mark}{label}", callback_data=f"q5_toggle:{idx}")])
     buttons.append([InlineKeyboardButton(text="Далее ➔", callback_data="q5_next")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
