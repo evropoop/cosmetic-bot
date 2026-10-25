@@ -258,8 +258,8 @@ async def extract_inci_from_image_bytes(image_bytes: bytes) -> str:
             )
             if response and response.choices:
                 extracted = (response.choices[0].message.content or "").strip()
-                if extracted:
-                    logger.info(f"👁 OCR ({ocr_model}) успешно обработал фото ({len(extracted)} симв.)")
+                logger.info(f"👁 OCR ({ocr_model}) сырой ответ: {extracted}")
+                if extracted and "NO_INCI_FOUND" not in extracted.upper():
                     return extracted
         except Exception as e:
             logger.warning(f"Модель OCR {ocr_model} недоступна, переключаюсь на резервную: {e}")
