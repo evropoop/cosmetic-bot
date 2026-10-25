@@ -1,6 +1,5 @@
 import os
 import re
-import base64
 import logging
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
@@ -9,31 +8,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Клиент Polza AI через OpenAI SDK
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
-    base_url="https://polza.ai/api/v1",
-    timeout=60.0,
-    max_retries=2
+    base_url="https://polza.ai/api/v1"
 )
 
-SONNET_MODEL = os.getenv("SONNET_MODEL", "anthropic/claude-sonnet-4.5")
+MODEL_NAME = "anthropic/claude-sonnet-4.5"
+OCR_MODEL = "google/gemini-3.1-flash-lite"
+TEMPERATURE_ANALYSIS = 0.1
+TEMPERATURE_DIAGNOSIS = 0.4
 
-# Используем Kimi K3.1 Pro в качестве основного OCR-инструмента
-OCR_MODELS = [
-    "moonshotai/kimi-k3.1-pro",
-    "anthropic/claude-sonnet-4.5",
-]
-
-OCR_SYSTEM_PROMPT = (
-    "Ты OCR-сканер. Извлеки с изображения ТОЛЬКО список ингредиентов косметики (INCI). "
-    "Категорически запрещено угадывать или дописывать обрезанные по краям флакона слова по памяти. "
-    "Если на фото нет состава (менее 3 компонентов) или края строк обрезаны на изгибе баночки так, "
-    "что состав нечитаем, верни строго одно слово: NO_INCI_FOUND"
-)
-# =====================================================================
-# 1. СТАТИЧНОЕ ЯДРО ПРОМПТА (КЭШИРУЕТСЯ НА 90% ДЛЯ ВСЕХ КАТЕГОРИЙ)
-# =====================================================================
 
 BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
 Ты — Роман Андреевич, строгий премиальный химик-технолог и косметический аудитор. Общайся на уважительное «Вы». Твой образ — надежная стена и абсолютная безопасность для клиентки. Транслируй мужскую профессиональную опеку: ты забираешь у нее тревогу и принимаешь решения за нее («Вы можете быть спокойны», «Я беру этот вопрос на себя»). Будь строг к производителям косметики, но максимально бережен к самой женщине.
@@ -60,7 +44,7 @@ BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
 5. ЗАПРЕЩЕНО писать слово «тег» или «теги» в ответе клиенту. Вплетай состояния кожи в текст естественно (например, «при нарушенном липидном барьере»).
 6. ОЦЕНКА ПОЗИЦИИ В INCI И ТЕХНИЧЕСКИХ БУФЕРОВ:
 - Консерванты-маркеры границы 1%: Phenoxyethanol, Ethylhexylglycerin, Chlorphenesin, Benzyl Alcohol, Sodium Benzoate, Potassium Sorbate, 1,2-Hexanediol (если в конце списка), а также Parfum / Fragrance и Disodium EDTA.
-- ИСКЛЮЧЕНИЕ ДЛЯ БУФЕРОВ pH: Единичные компоненты в самом конце списка (после консервантов), такие как Citric Acid, Lactic Acid, Salicylic Acid, Sodium Hydroxide, Potassium Hydroxide, Triethanolamine, Tromethamine, Arginine или базовый Tocopherol, являются технологическими регуляторами pH и стабилизаторами самой формулы. НЕ считай их «маркетинговой пылью» (не выдавай за них статус ПУСТЫШКА) и НЕ считай щелочи или кислоты в хвосте списка агрессивными активами/ПАВами.
+- ИСКЛЮЧЕНИЕ ДЛЯ БУФЕРОВ pH: Единичные компоненты в самом конце списка (после консервантов), такие как Citric Acid, Lactic Acid, Salicylic Acid, Sodium Hydroxide, Potassium Hydroxide, Triethanolamine, Tromethamine, Arginine или базовый Tocopherol, являются технологическими регуляторами pH и стабилизаторами самой формулы. НЕ считай их «маркетинговой пылью» и НЕ считай щелочи или кислоты в хвосте списка агрессивными активами/ПАВами.
 - ИСКЛЮЧЕНИЕ ДЛЯ СОЛЮБИЛИЗАТОРОВ: Если PEG (PEG-100 Stearate, PEG-40 Hydrogenated Castor Oil, Ceteareth-20, Polysorbate-20/60/80) стоит в самом конце списка (после консервантов или на последних 3-4 позициях для ввода отдушки), расценивай его как безопасный солюбилизатор в микродозе и НЕ применяй правило wash-out.
 
 ФОРМАТ ОТВЕТА И ТЕХНИЧЕСКИЕ МАРКЕРЫ БД:
@@ -68,6 +52,7 @@ BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
 2. ОБЯЗАТЕЛЬНЫЕ ТЕХНИЧЕСКИЕ МАРКЕРЫ: В самом конце ответа (после точки) с новой строки ВСЕГДА выводи ровно две технические строки для базы данных:
 STAGE_TAG: [Мягкое очищение] / [Тонизация] / [Базовый крем] / [Защита SPF] / [Актив или доп. уход]
 ACTIVES_TAG: [перечисли 1-3 главных актива средства через запятую, например: Retinol 0.5%, Niacinamide ИЛИ напиши Базовое увлажнение/очищение]"""
+
 
 EXAMPLES_BLOCK = """ПРИМЕРЫ ИДЕАЛЬНОГО ОТВЕТА (Соблюдай этот стиль и формат):
 
@@ -77,7 +62,7 @@ STAGE_TAG: [Актив или доп. уход]
 ACTIVES_TAG: [Retinol]
 
 ПРИМЕР 2 (Вводные: Имя - Мария, Теги - [Сломан барьер, Сухость]):
-Мария, ⚪️ ПУСТЫШКА. База безопасна, однако Ceramide NP и Hyaluronic Acid стоят в списке INCI после консерванта Phenoxyethanol. Их концентрация ниже 1%, они служат лишь маркетинговой приманкой и липидный барьер не восстановят. Вы можете быть спокойны, мы найдем рабочий аналог.
+Мария, ⚪ ПУСТЫШКА. База безопасна, однако Ceramide NP и Hyaluronic Acid стоят в списке INCI после консерванта Phenoxyethanol. Их концентрация ниже 1%, они служат лишь маркетинговой приманкой и липидный барьер не восстановят. Вы можете быть спокойны, мы найдем рабочий аналог.
 STAGE_TAG: [Базовый крем]
 ACTIVES_TAG: [Пустышка без рабочих концентраций]
 
@@ -97,10 +82,6 @@ STAGE_TAG: [Мягкое очищение]
 ACTIVES_TAG: [Гидрофильные масла и эмульгаторы]"""
 
 
-# =====================================================================
-# 2. МАТРИЦЫ И ОГРАНИЧИТЕЛИ КАТЕГОРИЙ (ПОДКЛЮЧАЕМЫЕ МОДУЛИ)
-# =====================================================================
-
 MATRIX_WASH = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДКЕ ПРИОРИТЕТА СВЕРХУ ВНИЗ (ПЕРВОЕ СОВПАДЕНИЕ ОПРЕДЕЛЯЕТ СТАТУС):
 
 1. 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (Высший приоритет)
@@ -115,6 +96,7 @@ MATRIX_WASH = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДК
 3. 🟢 ОДОБРЯЮ
 - ЕСЛИ это мягкая водная система умывания (Aqua/Water/гидролат/глицерин + мягкие ПАВы: Coco-Glucoside, Lauryl Glucoside, Decyl Glucoside, Cocamidopropyl Betaine, Sodium Cocoyl Isethionate, Sodium Lauroyl Sarcosinate, Disodium Laureth Sulfosuccinate, Sodium Cocoyl Glycinate, Sodium Lauroyl Glutamate), ИЛИ энзимная пудра (на основе крахмалов Zea Mays Starch / Maltodextrin + мягкие ПАВы и энзимы Papain/Bromelain), ИЛИ непенящееся очищающее молочко/эмульсия для чувствительной кожи без нарушений из пункта 1.
 - Шаблон: «🟢 ОДОБРЯЮ.»"""
+
 
 MATRIX_CARE = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДКЕ ПРИОРИТЕТА СВЕРХУ ВНИЗ (ПЕРВОЕ СОВПАДЕНИЕ ОПРЕДЕЛЯЕТ СТАТУС):
 
@@ -131,13 +113,14 @@ MATRIX_CARE = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДК
 - ЕСЛИ: В составе есть рабочие концентрации активных кислот (Glycolic, Lactic, Mandelic, Salicylic, Azelaic, Lactobionic Acid, Gluconolactone), ретиноидов, кислого Витамина С (именно чистая Ascorbic Acid / L-Ascorbic Acid) или эфирных масел ДО консервантов — особенно при наличии тегов [Сломан барьер] или [Реактивность]. (Если барьер нарушен, обязательно укажи в тексте, что актив нужно отложить/припарковать на 2 недели до восстановления барьера базовым кремом!). Также выдавай этот статус для SPF-средств со старыми химическими фильтрами (Octocrylene, Ethylhexyl Methoxycinnamate / Octinoxate, Homosalate) при теге [Реактивность] или [Купероз и покраснения].
 - Шаблон: «🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ.»
 
-4. ⚪️ ПУСТЫШКА (Маркетинговая пыль)
+4. ⚪ ПУСТЫШКА (Маркетинговая пыль)
 - ЕСЛИ (Правило 1%): Вся основная часть состава ДО консервантов состоит только из воды, базовых гликолей/глицерина, силиконов и загустителей, а ВСЕ целевые активы (пептиды, церамиды, ниацинамид, экстракты, пантенол, УФ-фильтры) стоят строго ПОСЛЕ консервантов (Phenoxyethanol, Ethylhexylglycerin) или Parfum. ОБЯЗАТЕЛЬНО объясни, что концентрация активов ниже 1% — это маркетинговая пыль. (ВАЖНО: Если в средстве есть рабочие активы, стабильные формы витамина С ИЛИ солнцезащитные УФ-фильтры ДО консервантов, статус ПУСТЫШКА НЕ применять!).
-- Шаблон: «⚪️ ПУСТЫШКА.»
+- Шаблон: «⚪ ПУСТЫШКА.»
 
 5. 🟢 ОДОБРЯЮ
 - ЕСЛИ: Рабочие увлажнители, липиды, мягкие активы (Niacinamide, Panthenol, Squalane, Centella Asiatica, пептиды, стабильные некислые формы Витамина С: Sodium Ascorbyl Phosphate, Ascorbyl Glucoside, 3-O-Ethyl Ascorbic Acid) ИЛИ современные стабильные солнцезащитные фильтры (Zinc Oxide, Titanium Dioxide, Bis-Ethylhexyloxyphenol Methoxyphenyl Triazine / Tinosorb S, Ethylhexyl Triazone / Uvinul T 150, Diethylamino Hydroxybenzoyl Hexyl Benzoate / Uvinul A Plus, Methylene Bis-Benzotriazolyl Tetramethylbutylphenol / Tinosorb M) стоят ДО консервантов, грамотная физиологичная база без нарушений из пунктов 1–4.
 - Шаблон: «🟢 ОДОБРЯЮ.»"""
+
 
 LIMITER_EYES = """МОДИФИКАТОР КАТЕГОРИИ «УХОД ДЛЯ ВЕК» (Вносит правки в MATRIX_CARE, кроме АБСОЛЮТНОГО ВЕТО по беременности и аллергии):
 Кожа век в 4 раза тоньше и практически не имеет сальных желез. Твои критерии оценки:
@@ -145,6 +128,7 @@ LIMITER_EYES = """МОДИФИКАТОР КАТЕГОРИИ «УХОД ДЛЯ В
 2. Если есть чистый Retinol / Retinal (и у клиентки НЕТ тега [Беременность]) — присвой статус 🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ и напиши: «Внимание: используйте строго микродозами, наносите на сухую кожу и избегайте подвижного века».
 3. Если есть эфирные масла (Citrus, Mentha, Eucalyptus, Lavandula, Rosmarinus) или агрессивные отдушки в первой половине списка — присвой 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (риск отека и раздражения слизистой).
 4. Ищи рабочие пептиды (Acetyl Tetrapeptide-5, Palmitoyl Tripeptide-1, Palmitoyl Tetrapeptide-7, Acetyl Hexapeptide-8, Dipeptide-2), Caffeine, Niacinamide и Ceramide ДО консервантов. Если они есть и база чистая — выдавай 🟢 ОДОБРЯЮ и хвали за работу с микроциркуляцией и плотностью кожи."""
+
 
 LIMITER_BODY = """МОДИФИКАТОР КАТЕГОРИИ «УХОД ДЛЯ ТЕЛА» (Имеет ПРИОРИТЕТ над MATRIX_CARE во всем, кроме АБСОЛЮТНОГО ВЕТО по беременности и аллергии):
 ВАЖНО: Игнорируй теги кожи лица ([Сломан барьер], [Себопрофицит], [Проблемная], [Реактивность]), так как они относятся к лицу, а не к телу!
@@ -158,7 +142,8 @@ LIMITER_BODY = """МОДИФИКАТОР КАТЕГОРИИ «УХОД ДЛЯ Т
 1. ОТМЕНА КОМЕДОГЕННОСТИ БАЗ (Для кремов и лосьонов): Плотные баттеры и окклюзивы (Shea Butter / Butyrospermum Parkii, Cocoa Butter, Coconut Oil, Mineral Oil, Petrolatum) для тела ПРИВЕТСТВУЮТСЯ и получают 🟢 ОДОБРЯЮ.
 2. АКТИВЫ ДЛЯ ТЕЛА (БЕЗ ПАРКОВКИ): Если видишь Urea (Мочевину), кислоты (Lactic Acid, Salicylic Acid, Glycolic Acid), Caffeine, Centella Asiatica или Niacinamide ДО консервантов (и нет вето по беременности) — выдавай 🟢 ОДОБРЯЮ (не выдавай желтый статус и не паркуй кислоты для тела!). Хвали за работу с рельефом, гиперкератозом или дренажем.
 3. ЕСЛИ ЭТО ГЕЛЬ ДЛЯ ДУША (есть ПАВы): при наличии связки SLS/SLES + Sodium Chloride в начале списка без мягких со-ПАВов и эмолентов — выдавай 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ и пиши: «Этот гель разрушит липидный барьер кожи тела, используйте мягкие ПАВы». Если ПАВы мягкие (или сульфаты смягчены бетаином, глюкозидами и маслами) — выдавай 🟢 ОДОБРЯЮ.
-4. ПУСТЫШКИ (Только для несмываемых кремов/лосьонов): если в креме или лосьоне для тела только вода, глицерин и дешевые силиконы (Dimethicone) без масел и активов до консервантов — выдавай ⚪️ ПУСТЫШКА и пиши: «Маркетинговая пустышка. Создаст лишь временную пленку до первого душа»."""
+4. ПУСТЫШКИ (Только для несмываемых кремов/лосьонов): если в креме или лосьоне для тела только вода, глицерин и дешевые силиконы (Dimethicone) без масел и активов до консервантов — выдавай ⚪ ПУСТЫШКА и пиши: «Маркетинговая пустышка. Создаст лишь временную пленку до первого душа»."""
+
 
 PROTOCOL_MODULE = """=========================================
 ДОПОЛНИТЕЛЬНЫЙ МОДУЛЬ «СБОРКА ПРОТОКОЛА»
@@ -185,119 +170,156 @@ PROTOCOL_MODULE = """=========================================
 «Я — алгоритм-фильтр, защищающий от химических ошибок. Если вы хотите получить готовую систему с точными названиями средств и ссылками на покупку — закажите Персональный PDF-протокол или Индивидуальный Бокс у создателя проекта, Марии, через меню /tariffs»."""
 
 
-# =====================================================================
-# 3. САНИТИЗАЦИЯ И БЕСПЛАТНАЯ ВАЛИДАЦИЯ ДО ВЫЗОВА CLAUDE SONNET
-# =====================================================================
+TAG_MAP = {
+    "problem": "Проблемная", "seboprofit": "Себопрофицит", "pores": "Расширенные поры",
+    "dry": "Сухость", "peeling": "Шелушения", "pigment": "Пигментация",
+    "age": "Возрастные изменения", "couperose": "Купероз и покраснения",
+    "barrier_broken": "Сломан барьер", "fat_compensatory": "Компенсаторная жирность",
+    "reactive": "Реактивность", "medicine": "Медицина", "pregnancy": "Беременность",
+    "normal": "Норма",
+}
+
+
+def _translate_tags(tags: list) -> str:
+    if not tags:
+        return "нет данных"
+    result = []
+    for t in tags:
+        if t.startswith("allergy_"):
+            name = t[len("allergy_"):]
+            result.append(f"аллергия на {name}")
+        elif t in TAG_MAP:
+            result.append(TAG_MAP[t])
+        else:
+            result.append(t)
+    return ", ".join(result)
+
+
+def _safe_trim(text: str, limit: int = 450) -> str:
+    echo_markers = [
+        "РОЛЬ И ТОНАЛЬНОСТЬ", "ЧАСТЬ 1", "ЧАСТЬ 2", "ЧАСТЬ 3", "ЧАСТЬ 4",
+        "АБСОЛЮТНОЕ ВЕТО", "ВЫБЕРИ СТРОГО ОДИН СТАТУС", "ПРИМЕР 1",
+        "ПРОФЕССИОНАЛЬНЫЙ СЛОВАРЬ", "ЖЕСТКИЕ ПРАВИЛА", "ЖЕСТКИЙ ЛИМИТ",
+        "СИСТЕМНЫЙ ПРОМПТ", "ФОРМАТ ОТВЕТА", "СПЕЦИАЛЬНЫЕ ПРАВИЛА"
+    ]
+    if any(marker in text[:500] for marker in echo_markers):
+        for emoji in ["🔴", "🟠", "🟡", "🟢", "⚪", "🔵", "⚠️"]:
+            idx = text.find(emoji)
+            if idx != -1:
+                pre = text[:idx]
+                dot = pre.rfind(".")
+                if dot != -1 and dot > 50:
+                    text = text[dot + 1:].strip()
+                else:
+                    text = text[idx:]
+                break
+        else:
+            return "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Модель не выдала вердикт. Попробуйте ещё раз."
+
+    if len(text) <= limit:
+        return text
+
+    cut = text[:limit].rfind(".")
+    if cut > 200:
+        return text[:cut + 1]
+
+    cut = text[:limit].rfind(" ")
+    if cut > 200:
+        return text[:cut]
+
+    return text[:limit]
+
 
 def sanitize_text(text: str, max_len: int = 3000) -> str:
-    """Удаляет скобки для защиты от XML/Prompt Injection и обрезает длину (Блок 8, п. 2)."""
     if not text:
         return ""
     cleaned = re.sub(r"[<>\[\]\{\}]", "", text)
     return cleaned.strip()[:max_len]
 
 
-def validate_inci_before_llm(text: str) -> bool:
-    """
-    Блок 8, п. 3, Шаг В: Бесплатная проверка текста кодом ДО вызова Claude Sonnet.
-    ЕСЛИ NO_INCI_FOUND ИЛИ < 25 символов ИЛИ ссылки ИЛИ < 2 разделителей -> False.
-    """
-    if not text or "NO_INCI_FOUND" in text.upper():
-        return False
-    clean = text.strip()
-    if len(clean) < 25:
-        return False
-
-    lower_text = clean.lower()
-    forbidden_domains = ("http://", "https://", "t.me", "wildberries", "ozon", "goldapple")
-    if any(domain in lower_text for domain in forbidden_domains):
-        return False
-
-    # Проверка наличия минимум 2 разделителей (запятых, точек с запятой, слэшей, точек или буллитов)
-    separators_count = sum(clean.count(sep) for sep in (",", ";", "/", ".", "•"))
-    if separators_count < 2:
-        return False
-
-    return True
-
-
-# =====================================================================
-# 4. ЭТАП 4: ГЛАЗА — ЛЕГКИЙ OCR-СКАНЕР ДЛЯ ФОТОГРАФИЙ (БЛОК 8, п. 3)
-# =====================================================================
-
-async def extract_inci_from_image_bytes(image_bytes: bytes) -> str:
-    """
-    Принимает байты сжатого фото из Telegram, кодирует в Base64 и извлекает INCI
-    через легкую OCR-модель (Gemini Flash-Lite / Qwen2.5-VL) без вызова Vision у Claude Sonnet.
-    """
-    if not image_bytes:
-        return "NO_INCI_FOUND"
-
-    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-    data_url = f"data:image/jpeg;base64,{b64_image}"
-
-    for ocr_model in OCR_MODELS:
+async def _call_llm(system_blocks: list, user_prompt: str, temperature: float, max_tokens: int) -> str:
+    try:
+        response = await client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_blocks},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    except Exception as e:
+        logger.warning(f"Блок-формат system не принят ({e}), пробую plain text")
+        plain_system = "\n\n".join(b.get("text", "") for b in system_blocks)
         try:
             response = await client.chat.completions.create(
-                model=ocr_model,
+                model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": OCR_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Извлеки список ингредиентов (INCI) с этого фото:"},
-                            {"type": "image_url", "image_url": {"url": data_url}}
-                        ]
-                    }
+                    {"role": "system", "content": plain_system},
+                    {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.0,
-                max_tokens=1000,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
-            if response and response.choices:
-                extracted = (response.choices[0].message.content or "").strip()
-                logger.info(f"👁 OCR ({ocr_model}) сырой ответ: {extracted}")
-                if extracted and "NO_INCI_FOUND" not in extracted.upper():
-                    return extracted
-        except Exception as e:
-            logger.warning(f"Модель OCR {ocr_model} недоступна, переключаюсь на резервную: {e}")
+        except Exception as e2:
+            logger.error(f"Ошибка вызова LLM (plain fallback): {e2}")
+            return ""
 
-    return "NO_INCI_FOUND"
-
-
-# =====================================================================
-# 5. ЭТАП 3: МОЗГ — ВЫЗОВ CLAUDE SONNET С PROMPT CACHING И ПАРСИНГОМ
-# =====================================================================
-
-def _normalize_status_emoji(raw_output: str) -> str | None:
-    """Находит цветовой статус в ответе Claude и приводит белый кружок к единому виду."""
-    if "🔴" in raw_output:
-        return "🔴"
-    if "🟠" in raw_output:
-        return "🟠"
-    if "🟡" in raw_output:
-        return "🟡"
-    if "⚪" in raw_output:  # Ловит и ⚪, и ⚪️ (с вариационным селектором)
-        return "⚪️"
-    if "🟢" in raw_output:
-        return "🟢"
-    if "🔵" in raw_output:
-        return "🔵"
-    return None
+    try:
+        if not response or not response.choices:
+            return ""
+        content = response.choices[0].message.content
+        return content or ""
+    except Exception as e:
+        logger.error(f"Ошибка парсинга ответа: {e}")
+        return ""
 
 
-async def analyze_cosmetic_inci(
-    user_name: str,
-    user_tags: list[str],
-    category: str,           # "wash" | "care" | "eyes" | "body"
-    raw_inci_text: str,
-    is_protocol_tariff: bool = False,
-    approved_routine_text: str = "Пока нет сохраненных средств."
+async def extract_text_from_photos(photos_b64: list) -> str:
+    prompt = (
+        "Ты OCR-сканер. Извлеки с изображения ТОЛЬКО список ингредиентов косметики (INCI). "
+        "Категорически запрещено угадывать или дописывать обрезанные по краям флакона слова по памяти. "
+        "Если на фото нет состава (менее 3 компонентов) или края строк обрезаны на изгибе баночки так, что состав нечитаем, "
+        "верни строго одно слово: NO_INCI_FOUND"
+    )
+
+    content = [{"type": "text", "text": prompt}]
+    for b64 in photos_b64:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
+        })
+
+    try:
+        response = await client.chat.completions.create(
+            model=OCR_MODEL,
+            messages=[{"role": "user", "content": content}],
+            temperature=0.0,
+            max_tokens=1500,
+        )
+        if not response or not response.choices:
+            return "NO_INCI_FOUND"
+
+        text = response.choices[0].message.content.strip()
+        text = text.replace("```", "").replace("json", "").strip()
+
+        if not text or "NO_INCI_FOUND" in text:
+            return "NO_INCI_FOUND"
+
+        return text
+    except Exception as e:
+        logger.error(f"Ошибка OCR: {e}")
+        return "NO_INCI_FOUND"
+
+
+async def analyze_composition(
+    composition: str,
+    tags: list,
+    user_name: str = "",
+    category: str = "care",
+    tariff: str = "free",
+    approved_routine: str = ""
 ) -> dict:
-    """
-    Отправляет запрос в Claude Sonnet через Polza AI с включенным Anthropic Prompt Caching
-    (скидка 90% на статичное ядро) и возвращает распарсенный словарь для клиента и БД.
-    """
-    # 1. Формируем Блок №2 системного промпта по выбранной категории (Блок 6, п. 2)
     if category == "wash":
         dynamic_rules = MATRIX_WASH
     elif category == "care":
@@ -309,137 +331,97 @@ async def analyze_cosmetic_inci(
     else:
         dynamic_rules = MATRIX_CARE
 
-    # Подключаем PROTOCOL_MODULE только на тарифе 2500 ₽ и НЕ для тела
-    if is_protocol_tariff and category != "body":
+    is_protocol = (tariff == "protocol" and category != "body")
+    if is_protocol:
         dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
 
-    max_tokens_limit = 700 if (is_protocol_tariff and category != "body") else 350
+    max_tokens = 1000 if is_protocol else 350
 
-    # 2. Санитизация всех пользовательских переменных (Блок 8, п. 2)
     safe_name = sanitize_text(user_name, 30) or "Клиент"
-    safe_tags = ", ".join(sanitize_text(t, 100) for t in user_tags) if user_tags else "Норма"
-    safe_inci = sanitize_text(raw_inci_text, 4000)
+    translated = _translate_tags(tags)
+    if translated == "нет данных":
+        safe_tags = "нет данных"
+    else:
+        safe_tags = ", ".join(
+            f"[{sanitize_text(p.strip(), 100)}]" for p in translated.split(", ")
+        )
 
-    user_message = (
+    safe_inci = sanitize_text(composition, 2000)
+    safe_routine = sanitize_text(approved_routine, 1000) or "Пока нет сохраненных средств."
+
+    user_prompt = (
         f"Клиентка: {safe_name}\n"
         f"Диагностические состояния кожи: {safe_tags}\n"
-        f"<approved_routine>\n{approved_routine_text}\n</approved_routine>\n"
-        f"<user_input>\n{safe_inci}\n</user_input>"
+        f"<approved_routine>\n{safe_routine}\n</approved_routine>\n"
+        f"<user_input>\n{safe_inci}\n</user_input>\n\n"
+        f"ВАЖНО: Если внутри <user_input> нет химического состава (INCI) — верни строго одну фразу: "
+        f"«Для проведения химического аудита отправьте полный список компонентов средства (INCI)». "
+        f"Без статуса и без тегов."
     )
 
-    # 3. Вызов Claude Sonnet с жестким кэшированием Блока №1 (Блок 6, п. 2)
-    raw_output = ""
-    try:
-        response = await client.chat.completions.create(
-            model=SONNET_MODEL,
-            max_tokens=max_tokens_limit,
-            temperature=0.1,
-            messages=[
-                {
-                    "role": "system",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"{BASE_PROMPT}\n\n{EXAMPLES_BLOCK}",
-                            "cache_control": {"type": "ephemeral"}
-                        },
-                        {
-                            "type": "text",
-                            "text": dynamic_rules
-                        }
-                    ]
-                },
-                {
-                    "role": "user",
-                    "content": user_message
-                }
-            ]
-        )
-        if response and response.choices:
-            raw_output = (response.choices[0].message.content or "").strip()
-    except Exception as e:
-        logger.warning(f"Попытка вызова с массивом system не удалась, резервный вызов: {e}")
-        try:
-            response = await client.chat.completions.create(
-                model=SONNET_MODEL,
-                max_tokens=max_tokens_limit,
-                temperature=0.1,
-                messages=[
-                    {"role": "system", "content": f"{BASE_PROMPT}\n\n{EXAMPLES_BLOCK}\n\n{dynamic_rules}"},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            if response and response.choices:
-                raw_output = (response.choices[0].message.content or "").strip()
-        except Exception as e2:
-            logger.error(f"Критическая ошибка вызова Claude Sonnet: {e2}")
-            return {
-                "text_for_user": "⚠️ Техническая заминка на стороне лаборатории. Пожалуйста, отправьте состав еще раз — ваша попытка сохранена!",
-                "status_emoji": None,
-                "should_save_to_db": False,
-                "stage": "Актив или доп. уход",
-                "key_actives": "Базовый состав"
-            }
+    system_blocks = [
+        {
+            "type": "text",
+            "text": BASE_PROMPT + "\n\n" + EXAMPLES_BLOCK,
+            "cache_control": {"type": "ephemeral"}
+        },
+        {"type": "text", "text": dynamic_rules}
+    ]
+
+    raw_output = await _call_llm(system_blocks, user_prompt, 0.1, max_tokens)
+    if raw_output:
+        raw_output = _safe_trim(raw_output, 1200 if is_protocol else 500)
+    if not raw_output:
+        raw_output = await _call_llm(system_blocks, user_prompt, 0.0, max_tokens)
+        if raw_output:
+            raw_output = _safe_trim(raw_output, 1200 if is_protocol else 500)
 
     if not raw_output:
         return {
-            "text_for_user": "⚠️ Не удалось получить ответ от аналитического модуля. Повторите попытку — лимит не списан.",
-            "status_emoji": None,
-            "should_save_to_db": False,
+            "verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Не удалось обработать состав. Попробуйте ещё раз — лимит не списан.",
+            "status": "error",
             "stage": "Актив или доп. уход",
-            "key_actives": "Базовый состав"
+            "key_actives": "Базовое увлажнение",
+            "status_emoji": None
         }
 
-    # 4. Парсинг STAGE_TAG, ACTIVES_TAG и цветового статуса для БД (Блок 8, п. 5)
     stage_match = re.search(r"STAGE_TAG:\s*\[?([^\]\n]+)\]?", raw_output)
     actives_match = re.search(r"ACTIVES_TAG:\s*\[?([^\]\n]+)\]?", raw_output)
 
     stage_tag = stage_match.group(1).strip() if stage_match else "Актив или доп. уход"
-    actives_tag = actives_match.group(1).strip() if actives_match else "Базовый состав"
+    actives_tag = actives_match.group(1).strip() if actives_match else "Базовое увлажнение"
 
-    # Нормализуем название этапа строго под 5 этапов ТЗ
-    valid_stages = ("Мягкое очищение", "Тонизация", "Базовый крем", "Защита SPF", "Актив или доп. уход")
-    matched_stage = "Актив или доп. уход"
-    for vs in valid_stages:
-        if vs.lower() in stage_tag.lower():
-            matched_stage = vs
+    status_emoji = None
+    for emoji in ("🔴", "🟠", "🟡", "⚪", "🟢", "🔵"):
+        if emoji in raw_output:
+            status_emoji = emoji
             break
 
-    status_emoji = _normalize_status_emoji(raw_output)
+    status_map = {
+        "🔴": "bad",
+        "🟠": "hidden_threat",
+        "🟡": "conditional",
+        "⚪": "neutral",
+        "🟢": "good",
+        "🔵": "hydrophilic",
+    }
+    status = status_map.get(status_emoji, "error")
 
-    # 5. Вырезаем технические строки STAGE_TAG и ACTIVES_TAG перед отправкой клиенту
-    clean_text_for_user = re.sub(r"\n?STAGE_TAG:.*", "", raw_output, flags=re.DOTALL).strip()
-    clean_text_for_user = re.sub(r"\n?ACTIVES_TAG:.*", "", clean_text_for_user, flags=re.DOTALL).strip()
+    clean_text = re.sub(r"\n?STAGE_TAG:.*?(\n|$)", "", raw_output).strip()
+    clean_text = re.sub(r"\n?ACTIVES_TAG:.*?(\n|$)", "", clean_text).strip()
+
+    trim_limit = 1000 if is_protocol else 400
+    if len(clean_text) > trim_limit:
+        cut = clean_text[:trim_limit].rfind(".")
+        if cut > 200:
+            clean_text = clean_text[:cut + 1]
+        else:
+            clean_text = clean_text[:trim_limit]
 
     return {
-        "text_for_user": clean_text_for_user,
-        "status_emoji": status_emoji,       # Если None — состав не распознан, попытку НЕ списывать!
-        "should_save_to_db": (status_emoji in ("🟢", "🔵", "🟡")) and (category in ("wash", "care", "eyes")),
-        "stage": matched_stage,
-        "key_actives": actives_tag[:200]
+        "verdict": clean_text,
+        "status": status,
+        "stage": stage_tag,
+        "key_actives": actives_tag,
+        "status_emoji": status_emoji
     }
-
-
-# =====================================================================
-# ПЕСОЧНИЦА ДЛЯ ТЕСТИРОВАНИЯ В ТЕРМИНАЛЕ (ИНСТРУКЦИЯ ЭТАПА 3)
-# =====================================================================
-if __name__ == "__main__":
-    async def _test_sandbox():
-        print("🧪 Тест Этапа 3 (Claude Sonnet + Валидатор INCI)")
-        sample_inci = "Aqua, Glycerin, Squalane, Panthenol, Ceramide NP, Cetearyl Alcohol, Phenoxyethanol, Ethylhexylglycerin"
-        print(f"Проверка валидатором: {validate_inci_before_llm(sample_inci)}")
-
-        res = await analyze_cosmetic_inci(
-            user_name="Анна",
-            user_tags=["Сломан барьер", "Сухость"],
-            category="care",
-            raw_inci_text=sample_inci,
-            is_protocol_tariff=False
-        )
-        print("\n--- ОТВЕТ ДЛЯ КЛИЕНТА ---")
-        print(res["text_for_user"])
-        print("\n--- ДАННЫЕ ДЛЯ БД ---")
-        print(f"Статус: {res['status_emoji']} | Сохранять в БД: {res['should_save_to_db']}")
-        print(f"Этап (STAGE_TAG): {res['stage']} | Активы (ACTIVES_TAG): {res['key_actives']}")
-
-    asyncio.run(_test_sandbox())
