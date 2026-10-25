@@ -185,10 +185,12 @@ def build_q1_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def build_single_choice_keyboard(options: list, prefix: str) -> InlineKeyboardMarkup:
+def build_single_choice_keyboard(options: list, prefix: str, show_back: bool = True) -> InlineKeyboardMarkup:
     buttons = []
     for idx, (label, _) in enumerate(options):
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"{prefix}:{idx}")])
+    if show_back:
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"back_to_{prefix}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -197,7 +199,10 @@ def build_q5_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
     for idx, (label, _) in enumerate(Q5_OPTIONS):
         mark = "✅ " if idx in selected_indices else ""
         buttons.append([InlineKeyboardButton(text=f"{mark}{label}", callback_data=f"q5_toggle:{idx}")])
-    buttons.append([InlineKeyboardButton(text="Далее ➔", callback_data="q5_next")])
+    buttons.append([
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_q4"),
+        InlineKeyboardButton(text="Далее ➔", callback_data="q5_next")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -205,6 +210,7 @@ def build_q6_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Нет, аллергии нет", callback_data="q6:no")],
         [InlineKeyboardButton(text="Да, есть", callback_data="q6:yes")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_q5")]
     ])
 
 
@@ -418,6 +424,24 @@ async def q1_next_cb(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@dp.callback_query(StateFilter(SurveyStates.q2), F.data == "back_to_q2")
+async def back_to_q1_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(SurveyStates.q1)
+    data = await state.get_data()
+    selected = data.get("q1_selected", [])
+    try:
+        await callback.message.edit_text(
+            "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько вариантов)",
+            reply_markup=build_q1_keyboard(selected)
+        )
+    except Exception:
+        await callback.message.answer(
+            "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько вариантов)",
+            reply_markup=build_q1_keyboard(selected)
+        )
+    await callback.answer()
+
+
 @dp.callback_query(StateFilter(SurveyStates.q2), F.data.startswith("q2:"))
 async def q2_answer_cb(callback: types.CallbackQuery, state: FSMContext):
     idx = int(callback.data.split(":")[1])
@@ -439,6 +463,22 @@ async def q2_answer_cb(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer(
             "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
             reply_markup=build_single_choice_keyboard(Q3_OPTIONS, "q3")
+        )
+    await callback.answer()
+
+
+@dp.callback_query(StateFilter(SurveyStates.q3), F.data == "back_to_q3")
+async def back_to_q2_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(SurveyStates.q2)
+    try:
+        await callback.message.edit_text(
+            "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
+            reply_markup=build_single_choice_keyboard(Q2_OPTIONS, "q2")
+        )
+    except Exception:
+        await callback.message.answer(
+            "Вопрос 2. Как чувствует себя ваша кожа через 10 минут после умывания просто водой (до крема)?",
+            reply_markup=build_single_choice_keyboard(Q2_OPTIONS, "q2")
         )
     await callback.answer()
 
@@ -472,6 +512,22 @@ async def q3_answer_cb(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@dp.callback_query(StateFilter(SurveyStates.q4), F.data == "back_to_q4")
+async def back_to_q3_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(SurveyStates.q3)
+    try:
+        await callback.message.edit_text(
+            "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
+            reply_markup=build_single_choice_keyboard(Q3_OPTIONS, "q3")
+        )
+    except Exception:
+        await callback.message.answer(
+            "Вопрос 3. Как ведет себя ваша кожа к середине дня?",
+            reply_markup=build_single_choice_keyboard(Q3_OPTIONS, "q3")
+        )
+    await callback.answer()
+
+
 @dp.callback_query(StateFilter(SurveyStates.q4), F.data.startswith("q4:"))
 async def q4_answer_cb(callback: types.CallbackQuery, state: FSMContext):
     idx = int(callback.data.split(":")[1])
@@ -492,6 +548,22 @@ async def q4_answer_cb(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer(
             "Вопрос 5. Есть ли у вас сейчас что-то из перечисленного?\n(Можно выбрать несколько вариантов)",
             reply_markup=build_q5_keyboard([])
+        )
+    await callback.answer()
+
+
+@dp.callback_query(StateFilter(SurveyStates.q5), F.data == "back_to_q5")
+async def back_to_q4_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(SurveyStates.q4)
+    try:
+        await callback.message.edit_text(
+            "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям?",
+            reply_markup=build_single_choice_keyboard(Q4_OPTIONS, "q4")
+        )
+    except Exception:
+        await callback.message.answer(
+            "Вопрос 4. Насколько ваша кожа чувствительна к раздражителям?",
+            reply_markup=build_single_choice_keyboard(Q4_OPTIONS, "q4")
         )
     await callback.answer()
 
@@ -1370,7 +1442,7 @@ async def setup_bot_commands():
 
 
 async def main():
-    logger.info("🚀 Бот (Финальная сборка ТЗ v4.0) запущен!")
+    logger.info("🚀 Бот (Финальная сборка ТЗ v4.0 с кнопкой Назад) запущен!")
     try:
         await setup_bot_commands()
     except Exception as e:
