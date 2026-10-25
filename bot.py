@@ -5,7 +5,7 @@ import time
 import asyncio
 import logging
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F, types, BaseMiddleware
 from aiogram.filters import CommandStart, Command, StateFilter
@@ -53,9 +53,6 @@ dp = Dispatcher(storage=storage)
 
 db.init_db()
 
-# =====================================================================
-# ЗАЩИТА ОТ ДВОЙНОГО КЛИКА, АЛЬБОМОВ И ТРОТТЛИНГА
-# =====================================================================
 USER_SCAN_LOCKS: dict[int, asyncio.Lock] = {}
 USER_RATE_TIMESTAMPS: dict[int, list[float]] = {}
 HANDLED_MEDIA_GROUPS: dict[str, float] = {}
@@ -79,9 +76,6 @@ def check_rate_limit_3_per_min(user_id: int) -> bool:
     return True
 
 
-# =====================================================================
-# MIDDLEWARE АКТИВНОСТИ ПОЛЬЗОВАТЕЛЯ
-# =====================================================================
 class ActivityMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         try:
@@ -96,9 +90,6 @@ dp.message.middleware(ActivityMiddleware())
 dp.callback_query.middleware(ActivityMiddleware())
 
 
-# =====================================================================
-# СОСТОЯНИЯ FSM (БЛОК 2 и БЛОК 5)
-# =====================================================================
 class SurveyStates(StatesGroup):
     waiting_for_name = State()
     q1 = State()
@@ -125,9 +116,6 @@ SURVEY_ACTIVE_STATES = {
 }
 
 
-# =====================================================================
-# САНИТИЗАЦИЯ ВВОДА (БЛОК 8, п. 2)
-# =====================================================================
 def sanitize_user_name(text: str) -> str:
     if not text:
         return ""
@@ -145,9 +133,6 @@ def sanitize_short_input(text: str, max_len: int = 100) -> str:
     return cleaned[:max_len]
 
 
-# =====================================================================
-# ДАННЫЕ АНКЕТЫ И КЛАВИАТУРЫ
-# =====================================================================
 Q1_OPTIONS = [
     ("Акне / активные воспаления", "Проблемная"),
     ("Закрытые комедоны / бугорки", "Проблемная"),
@@ -194,7 +179,7 @@ Q5_OPTIONS = [
 def build_q1_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
     buttons = []
     for idx, (label, _) in enumerate(Q1_OPTIONS):
-        mark = "✅" if idx in selected_indices else "⬜️"
+        mark = "✅" if idx in selected_indices else "[ ]"
         buttons.append([InlineKeyboardButton(text=f"{mark} {label}", callback_data=f"q1_toggle:{idx}")])
     buttons.append([InlineKeyboardButton(text="Далее ➔", callback_data="q1_next")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -210,7 +195,7 @@ def build_single_choice_keyboard(options: list, prefix: str) -> InlineKeyboardMa
 def build_q5_keyboard(selected_indices: list[int]) -> InlineKeyboardMarkup:
     buttons = []
     for idx, (label, _) in enumerate(Q5_OPTIONS):
-        mark = "✅" if idx in selected_indices else "⬜️"
+        mark = "✅" if idx in selected_indices else "[ ]"
         buttons.append([InlineKeyboardButton(text=f"{mark} {label}", callback_data=f"q5_toggle:{idx}")])
     buttons.append([InlineKeyboardButton(text="Далее ➔", callback_data="q5_next")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -267,9 +252,6 @@ def get_step6_maria_keyboard(user_name: str, telegram_id: int) -> InlineKeyboard
     ])
 
 
-# =====================================================================
-# ТЕКСТЫ И КОНСТАНТЫ
-# =====================================================================
 WARMUP_AFTER_FIRST_SCAN_TEXT = (
     "🤖 Роман Андреевич: В будущем вы сможете продолжить работу со мной в двух форматах:\n\n"
     "💳 <b>АУДИТ (1000 ₽ / 30 дней)</b>\n"
@@ -315,9 +297,6 @@ MARIA_PRODUCTS_DESCRIPTION = (
 )
 
 
-# =====================================================================
-# ШАГ 1 и ШАГ 2. СТАРТ И АНКЕТА
-# =====================================================================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -674,9 +653,6 @@ async def finalize_survey_and_show_diagnosis(message: types.Message, user_id: in
     )
 
 
-# =====================================================================
-# ШАГ 3 (РАЗВИЛКА) И БЛОК 5 (КАТЕГОРИИ)
-# =====================================================================
 @dp.callback_query(F.data == "branch_roman")
 async def branch_roman_cb(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -761,9 +737,6 @@ async def select_category_cb(callback: types.CallbackQuery, state: FSMContext):
     )
 
 
-# =====================================================================
-# ЯДРО СКАНЕРА И ВАЛИДАЦИЯ
-# =====================================================================
 async def _ensure_user_can_scan(message: types.Message, user_id: int, username: str, state: FSMContext) -> bool:
     user = db.get_or_create_user(user_id, username)
     current_state = await state.get_state()
@@ -954,8 +927,7 @@ async def handle_photo_message(message: types.Message, state: FSMContext):
             bio = io.BytesIO()
             await bot.download_file(file_info.file_path, destination=bio)
             extracted_inci = await extract_inci_from_image_bytes(bio.getvalue())
-        except Exception as e:
-            logger.error(f"Ошибка OCR: {e}")
+        except Exception:
             extracted_inci = "NO_INCI_FOUND"
 
         try:
@@ -1043,11 +1015,7 @@ async def handle_text_inci_or_buffer(message: types.Message, state: FSMContext):
     )
 
 
-# =====================================================================
-# ШАГ 6. ВЕТКА Б И АДМИН-ПУЛЬТ CRM ДЛЯ МАРИИ (ЭТАП 8)
-# =====================================================================
 async def send_admin_lead_card(user_data: dict, target_bot: Bot = bot):
-    """Блок 8, п. 7: Отправляет карточку лида администратору с кнопками управления пушами."""
     telegram_id = user_data["telegram_id"]
     user_name = user_data.get("user_name") or "Без имени"
     username = user_data.get("username") or "нет_ника"
@@ -1063,7 +1031,7 @@ async def send_admin_lead_card(user_data: dict, target_bot: Bot = bot):
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏸ Пауза пушей на 72 часа", callback_data=f"admin_pause:{telegram_id}")],
-        [InlineKeyboardButton(text="✅ Купила Бокс / PDF (Отключить пуши)", callback_data=f"admin_vip:{telegram_id}")]
+        [InlineKeyboardButton(text="✅ Купил(а) Бокс / PDF (Отключить пуши)", callback_data=f"admin_vip:{telegram_id}")]
     ])
 
     try:
@@ -1079,7 +1047,6 @@ async def branch_maria_cb(callback: types.CallbackQuery):
     user = db.get_or_create_user(user_id, callback.from_user.username)
     user_name = user.get("user_name") or callback.from_user.first_name or "Клиент"
 
-    # При переходе на Шаг 6 отправляем лид администратору (Блок 8, п. 7)
     asyncio.create_task(send_admin_lead_card(user))
 
     intro = "Прекрасный выбор. Чистый лист — это идеальная возможность сразу выстроить грамотный фундамент. Вы можете заказать у Марии:\n\n" if scenario == "2" else "Прекрасный выбор. Вы можете заказать у Марии:\n\n"
@@ -1128,7 +1095,6 @@ async def admin_vip_cb(callback: types.CallbackQuery):
 
 @dp.message(F.text.regexp(r"#(\d+)"))
 async def admin_search_client_by_hashtag(message: types.Message):
-    """Блок 8, п. 7: Поиск клиента админом по #telegram_id."""
     if message.from_user.id != ADMIN_ID:
         return
 
@@ -1145,9 +1111,6 @@ async def admin_search_client_by_hashtag(message: types.Message):
     await send_admin_lead_card(client_data, message.bot)
 
 
-# =====================================================================
-# МЕНЮ КОМАНД И ПРОФИЛЬ
-# =====================================================================
 @dp.message(Command("profile"))
 async def cmd_profile(message: types.Message):
     user_id = message.from_user.id
@@ -1257,7 +1220,6 @@ async def cmd_tariffs(message: types.Message):
 @dp.callback_query(F.data.startswith("buy:"))
 async def buy_tariff_placeholder_cb(callback: types.CallbackQuery):
     tariff_code = callback.data.split(":")[1]
-    # Тестовая имитация успешной оплаты для отладки пушей и воронки
     if tariff_code in ("audit_1000", "protocol_2500", "pdf_4900"):
         db.process_successful_payment(
             payment_id=f"test_pay_{int(time.time())}",
@@ -1270,14 +1232,7 @@ async def buy_tariff_placeholder_cb(callback: types.CallbackQuery):
         return
 
 
-# =====================================================================
-# ФОНОВЫЕ ВОРКЕРЫ ПУШЕЙ (БЛОКИ 3, 4 и 4.1)
-# =====================================================================
 async def background_retention_and_push_worker():
-    """
-    Фоновый воркер: каждую минуту проверяет анкеты, паузы,
-    таймеры дожима (Блок 4), реактивации (Блок 4.1) и 29-й день (Блок 3).
-    """
     logger.info("⏰ Фоновый воркер пушей (ТЗ v4.0) запущен")
     while True:
         try:
@@ -1294,7 +1249,6 @@ async def background_retention_and_push_worker():
                 maria_status = u.get("maria_order_status", "none")
                 pause_until_str = u.get("pause_until")
 
-                # Если VIP или пауза активна — пропускаем
                 if maria_status == "completed_vip":
                     continue
                 if pause_until_str:
@@ -1304,19 +1258,15 @@ async def background_retention_and_push_worker():
                     except Exception:
                         pass
 
-                # Проверяем, есть ли активная подписка на сканер
                 has_sub, tariff = db.has_active_scanner_sub(uid)
 
-                # Вычисляем время последней активности
                 last_act_str = u.get("last_activity_at") or u.get("created_at")
                 try:
                     last_act = datetime.fromisoformat(last_act_str)
                 except Exception:
                     last_act = now
                 elapsed_hours = (now - last_act).total_seconds() / 3600.0
-                elapsed_days = elapsed_hours / 24.0
 
-                # --- БЛОК 4: ДОЖИМ ДО ПОКУПКИ (Если нет подписки и заказа) ---
                 if not has_sub and tariff == "none" and maria_status in ("none", "paused_72h"):
                     push_schedule = [
                         (2.0, "p_2h", "🤖 {user_name}, вы остановились на этапе активации. Ваша анкета сохранена. Чтобы я мог завершить химический анализ вашего ухода и выстроить протокол безопасности, необходимо завершить оформление. Я готов приступить к работе.", get_paywall_keyboard()),
@@ -1340,12 +1290,10 @@ async def background_retention_and_push_worker():
                                 try:
                                     await bot.send_message(uid, formatted_text, reply_markup=p_kb, parse_mode="HTML")
                                     db_mark_push_sent(uid, p_key)
-                                    logger.info(f"📨 Отправлен пуш дожима {p_key} пользователю {uid}")
-                                except Exception as e:
-                                    logger.warning(f"Не удалось отправить пуш {p_key} юзеру {uid}: {e}")
+                                except Exception:
+                                    pass
                                 await asyncio.sleep(0.3)
 
-                # --- БЛОК 3: ПУШ НА 29-Й ДЕНЬ ПОДПИСКИ ---
                 elif has_sub and u.get("scanner_expires_at"):
                     try:
                         exp_dt = datetime.fromisoformat(u["scanner_expires_at"])
@@ -1380,11 +1328,11 @@ async def background_retention_and_push_worker():
 
                                 await bot.send_message(uid, renew_text, reply_markup=renew_kb)
                                 db_mark_push_sent(uid, p_key)
-                    except Exception as e:
-                        logger.error(f"Ошибка проверки 29-го дня для {uid}: {e}")
+                    except Exception:
+                        pass
 
-        except Exception as e:
-            logger.error(f"Ошибка в background_retention_and_push_worker: {e}")
+        except Exception:
+            pass
 
         await asyncio.sleep(60)
 
