@@ -668,6 +668,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     user = db.get_or_create_user(telegram_id, username)
 
+    # Карантин 30 дней (только для НЕ-unlimited)
     if telegram_id not in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
         completed_at = user.get("survey_completed_at")
         if completed_at:
@@ -693,6 +694,21 @@ async def cmd_start(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Не удалось отправить кружок: {e}")
 
+    # 👑 UNLIMITED + анкета уже пройдена — даём выбор: перепройти или сканировать
+    if telegram_id in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
+        await state.clear()
+        await message.answer(
+            "👑 Режим безлимита. Вы можете:\n\n"
+            "🔄 Перепройти диагностику заново — нажмите кнопку ниже\n"
+            "🔍 Или сразу выбрать категорию средства для проверки",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Перепройти анкету заново", callback_data="start_diagnostics")],
+                *get_category_4_keyboard().inline_keyboard,
+            ])
+        )
+        return
+
+    # Новая анкета (ни анкета не пройдена, ни unlimited-ветка не сработала)
     if user.get("survey_done", 0) == 0:
         await message.answer(
             f"Жми на кнопку ниже, чтобы Роман Андреевич запустил алгоритм диагностики 👇\n\n"
@@ -704,8 +720,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
         )
         return
 
+    # Обычные пользователи, анкета пройдена, карантин истёк
     await handle_scanner_entry(message, state, user)
-
     await message.answer(
         "Также вы можете забрать готовый уход от Марии, нажав на кнопку внизу.",
         reply_markup=get_mode_keyboard()
