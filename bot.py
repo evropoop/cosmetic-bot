@@ -1183,7 +1183,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
             "безопасный протокол.\n\n"
         )
 
-       allergy_names = [t[len("allergy_"):] for t in tags if t.startswith("allergy_")]
+    allergy_names = [t[len("allergy_"):] for t in tags if t.startswith("allergy_")]
     if allergy_names:
         allergy_text = ", ".join(allergy_names)
         diagnosis_text += (
