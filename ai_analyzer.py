@@ -85,9 +85,7 @@ ACTIVES_TAG: [Гидрофильные масла и эмульгаторы]"""
 MATRIX_WASH = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДКЕ ПРИОРИТЕТА СВЕРХУ ВНИЗ (ПЕРВОЕ СОВПАДЕНИЕ ОПРЕДЕЛЯЕТ СТАТУС):
 
 1. 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (Высший приоритет)
-- АБСОЛЮТНОЕ ВЕТО: Совпадение тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — примечание: Bakuchiol безопасен и разрешен!) или Salicylic Acid ДО консервантов; ЛИБО совпадение тега [Аллергия на ...] с компонентом в составе.
-- ИЛИ: В первой половине состава есть жесткие анионные сульфатные ПАВы (Sodium Lauryl Sulfate / SLS, Sodium Laureth Sulfate / SLES, Ammonium Lauryl Sulfate / ALS, Sodium Coco-Sulfate), щелочная мыльная база (Potassium Hydroxide / Sodium Hydroxide в первой половине списка в паре с жирными кислотами: Myristic, Lauric, Stearic, Palmitic Acid) или травматичные скрабирующие частицы (Apricot Seed Powder, Walnut Shell Powder).
-- Шаблон: «🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.»
+- АБСОЛЮТНОЕ ВЕТО: Совпадение тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — примечание: Bakuchiol безопасен и разрешен!) или Salicylic Acid ДО консервантов; ЛИБО совпадение тега [Аллергия на ...] с компонентом в составе. КРИТИЧНО ДЛЯ АЛЛЕРГИЙ: ИИ ОБЯЗАН перевести название аллергена клиента на английский язык и латынь (INCI) и жестко искать любые его производные (Extract, Oil, Water, Ferment). Например: «мята» = Peppermint / Mentha; «ромашка» = Chamomilla; «мед» = Honey / Mel / Propolis / Beeswax. При совпадении — статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
 
 2. 🔵 ИСКЛЮЧЕНИЕ (Средства 1-го этапа демакияжа)
 - ЕСЛИ это гидрофильное масло/бальзам (на 1-м месте стоят Масла/Эмоленты + ПЭГ/Полисорбаты/Сорбеты) ИЛИ мицеллярная вода (Aqua + Poloxamer 184 / Poloxamer 188 / PEG-6 Caprylic/Capric Glycerides без пенящихся ПАВов). Наличие ПЭГ здесь — технологическая норма для растворения себума и макияжа.
@@ -101,9 +99,7 @@ MATRIX_WASH = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДК
 MATRIX_CARE = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДКЕ ПРИОРИТЕТА СВЕРХУ ВНИЗ (ПЕРВОЕ СОВПАДЕНИЕ ОПРЕДЕЛЯЕТ СТАТУС):
 
 1. 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (Высший приоритет)
-- АБСОЛЮТНОЕ ВЕТО: При совпадении тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — кроме безопасного Bakuchiol) или BHA (Salicylic Acid ДО консервантов), или токсичными УФ-фильтрами (Benzophenone-3 / Oxybenzone); ЛИБО при совпадении тега [Аллергия на ...] с компонентом в составе — НЕМЕДЛЕННО выдавай этот статус (никакие модификаторы ниже не могут отменить это вето!).
-- ИЛИ: В первой половине состава есть простые летучие спирты (Alcohol Denat, Ethanol, Isopropyl Alcohol) ИЛИ тяжелые окклюзионно-комедогенные базы для лица (Mineral Oil, Petrolatum, Paraffinum Liquidum, Isopropyl Myristate, Isopropyl Palmitate, Coconut Oil, Talc), ИЛИ токсичный УФ-фильтр Benzophenone-3 (Oxybenzone).
-- Шаблон: «🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.»
+- АБСОЛЮТНОЕ ВЕТО: При совпадении тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — кроме безопасного Bakuchiol) или BHA (Salicylic Acid ДО консервантов), или токсичными УФ-фильтрами (Benzophenone-3 / Oxybenzone); ЛИБО при совпадении тега [Аллергия на ...] с компонентом в составе — НЕМЕДЛЕННО выдавай этот статус (никакие модификаторы ниже не могут отменить это вето!). КРИТИЧНО ДЛЯ АЛЛЕРГИЙ: ИИ ОБЯЗАН перевести название аллергена клиента на английский язык и латынь (INCI) и жестко искать любые его производные (Extract, Oil, Water, Ferment). Например: «мята» = Peppermint / Mentha; «ромашка» = Chamomilla; «мед» = Honey / Mel / Propolis / Beeswax. При совпадении — статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
 
 2. 🟠 ОТКЛОНЯЕМ (Скрытая угроза)
 - ЕСЛИ (Правило Wash-out): в составе заявлены физиологичные липиды (Ceramide, Cholesterol, Phospholipids), но эмульсионная база построена на агрессивных ПЭГ-эмульгаторах в основной части состава ДО консервантов (PEG-100 Stearate, PEG-40 Stearate, Ceteareth-20, Polysorbate-60). ОБЯЗАТЕЛЬНО жестко опиши эффект wash-out: такой эмульгатор встраивается в липидный барьер и при последующем контакте с водой вымоет собственные липиды эпидермиса.
