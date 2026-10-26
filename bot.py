@@ -1183,10 +1183,12 @@ async def finish_survey(message: types.Message, state: FSMContext):
             "безопасный протокол.\n\n"
         )
 
-    if any(t.startswith("allergy_") for t in tags):
+       allergy_names = [t[len("allergy_"):] for t in tags if t.startswith("allergy_")]
+    if allergy_names:
+        allergy_text = ", ".join(allergy_names)
         diagnosis_text += (
-            "🛑 В базу данных внесен строгий стоп-лист на ваши аллергены. Любой продукт "
-            "с их содержанием будет автоматически блокироваться матрицей.\n\n"
+            f"🛑 В базу данных внесен строгий стоп-лист на ваш аллерген: {allergy_text}. "
+            "Любой продукт с его содержанием будет автоматически блокироваться матрицей.\n\n"
         )
     # === END БЛОК 1 ===
 
