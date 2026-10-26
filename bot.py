@@ -45,6 +45,9 @@ if not BOT_TOKEN:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+BOT_VERSION = "v6-2026-10-26-fix-survey"
+logger.info(f"🔥 Запущена версия: {BOT_VERSION}")
+
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -245,8 +248,8 @@ SURVEY_QUESTIONS = [
     {
         "text": "Вопрос 1. Что вас сейчас беспокоит больше всего?\n(Можно выбрать несколько)",
         "options": [
-            ("Акне / активные воспаления", "problem"),
-            ("Закрытые комедоны / бугорки", "problem"),
+            ("Акне / активные воспаления", "acne"),
+            ("Закрытые комедоны / бугорки", "comedones"),
             ("Сильная жирность днем", "seboprofit"),
             ("Черные точки / поры", "pores"),
             ("Сухость / стянутость", "dry"),
@@ -976,7 +979,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
 
     if tag == "done":
         if step == 0:
-            has_tag = any(t in tags for t in ["problem", "seboprofit", "pores", "dry", "peeling", "pigment", "age", "couperose", "normal"])
+            has_tag = any(t in tags for t in ["acne", "comedones", "seboprofit", "pores", "dry", "peeling", "pigment", "age", "couperose", "normal"])
             if not has_tag:
                 await callback.answer("Выберите хотя бы один вариант!", show_alert=True)
                 return
@@ -1022,7 +1025,12 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
         tags = [t for t in tags if t not in step_tags]
         if tag not in tags:
             tags.append(tag)
-        await state.update_data(tags=tags)
+
+        # Автопереход на следующий вопрос
+        step_contrib = data.get("step_contrib", {})
+        step_contrib[str(step)] = [tag]
+
+        await state.update_data(tags=tags, survey_step=step + 1, step_contrib=step_contrib)
         await callback.message.delete()
         await send_question(callback.message, state)
         await callback.answer()
