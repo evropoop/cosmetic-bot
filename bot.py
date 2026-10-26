@@ -1470,97 +1470,34 @@ async def reject_other_media(message: types.Message):
     )
 
 
-@dp.callback_query(F.data == "analyze_photos")
-async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
-    telegram_id = callback.from_user.id
-    user = db.get_or_create_user(telegram_id)
+@dp.callback_query(F.data.startswith("cat_"))
+async def process_category_choice(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
+    await safe_delete(callback.message)
+    cat_data = callback.data.split("_")
+    cat_type = cat_data[1]
+
     data = await state.get_data()
-    photo_urls = data.get("photo_urls", [])
-    category_fsm = data.get("category", None)
+    pending_inci = data.get("pending_inci")
 
-    if not photo_urls:
-        await callback.answer("Фото не найдены. Отправьте их ещё раз.", show_alert=True)
-        return
+    await state.update_data(category=cat_type)
 
-    if not check_user_limits(user):
-        db.schedule_retention_notifications(telegram_id)
-        await send_paywall(callback.message)
-        await callback.answer()
-        return
+    if pending_inci:
+        user = db.get_or_create_user(callback.from_user.id)
+        await state.update_data(pending_inci=None)
+        await callback.message.answer("Категория выбрана. Приступаю к анализу!")
+        await perform_analysis(callback.message, state, user, pending_inci, cat_type)
+    else:
+        await callback.message.answer(
+            "Категория выбрана. Отправьте фотографию состава (четкое фото этикетки или скриншот из интернет-магазина) "
+            "либо пришлите список компонентов (INCI) текстом 👇"
+        )
+        await state.set_state(Form.waiting_for_composition)
 
-    lock = get_user_lock(telegram_id)
-    if lock.locked():
-        await callback.message.answer("⏳ Подождите пару секунд, я уже анализирую предыдущий состав...")
-        await callback.answer()
-        return
-
-    async with lock:
-        user = db.get_or_create_user(telegram_id)
-        if not check_user_limits(user):
-            db.schedule_retention_notifications(telegram_id)
-            await send_paywall(callback.message)
-            await callback.answer()
-            return
-
-        if telegram_id not in UNLIMITED_IDS:
-            limit_status = db.check_rate_limit(telegram_id)
-            if limit_status:
-                if limit_status == "day":
-                    await callback.message.answer("Вы проверили уже 40 средств за сегодня — давайте дадим коже и алгоритму передышку и продолжим аудит завтра! 🌿")
-                else:
-                    await callback.message.answer("⏳ Слишком много запросов. Пожалуйста, подождите немного.")
-                await callback.answer()
-                return
-
-        user_name = await _resolve_user_name(callback.message, state, user)
-        category = category_fsm
-        tariff = get_user_tariff(user)
-
-        loading_msg = await callback.message.answer("🔍 Распознаю текст с фотографии...")
-
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-
-        extracted_text = await extract_text_from_photos(photo_urls)
-
-        if not validate_inci_text(extracted_text):
-            await loading_msg.edit_text(
-                "Не удалось распознать полный список компонентов (INCI).\n\n"
-                "Пожалуйста, убедитесь, что на фото четко виден текст после слова Состав / Ingredients "
-                "без обрезанных краев (либо скопируйте состав текстом из карточки товара).\n\n"
-                "Ваша попытка не списалась!"
-            )
-            await callback.answer()
-            return
-
-        db.log_scan(telegram_id)
-        await loading_msg.edit_text("🔬 Анализирую состав...")
-
-        tags = user.get("user_tags", [])
-
-        approved_routine = ""
-        if tariff == "protocol":
-            products = db.get_approved_products(telegram_id)
-            if products:
-                lines = []
-                for p in products:
-                    lines.append(f"Этап: {p['stage']} | Статус: {p['status']} | Активы: {p['key_actives']}")
-                approved_routine = "\n".join(lines)
-
-        result = await analyze_composition(extracted_text, tags, user_name, category, tariff, approved_routine)
-        clean_text = result["verdict"]
-        stage = result["stage"]
-        actives = result["key_actives"]
-        status = result["status"]
-
-        if status not in ANALYZABLE_STATUSES:
-            await loading_msg.edit_text(
-                "⚠️ Модель не смогла выдать вердикт по этому составу. Попробуйте ещё раз — лимит не списан."
-            )
-            await callback.answer()
-            return
 
         record_id = None
         if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
