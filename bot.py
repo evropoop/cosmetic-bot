@@ -45,7 +45,7 @@ if not BOT_TOKEN:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_VERSION = "v6-2026-10-26-fix-survey"
+BOT_VERSION = "v7-2026-10-26-red-flags"
 logger.info(f"🔥 Запущена версия: {BOT_VERSION}")
 
 bot = Bot(token=BOT_TOKEN)
@@ -1167,7 +1167,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
         )
 
     # =====================================================================
-    # БЛОК 2: Состояние кожи (только если нет красных флагов)
+    # БЛОК 2: Состояние кожи
     # =====================================================================
     if "barrier_broken" in tags:
         diagnosis_parts.append(
@@ -1175,7 +1175,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
             "Если сейчас агрессивно вводить антиэйдж или кислоты, мы получим воспаление."
         )
 
-    # Если красных флагов и проблем с барьером нет — говорим про норму
+    # Если вообще ничего не добавилось — говорим про норму
     if not diagnosis_parts:
         diagnosis_parts.append(
             "Фиксируем нормальное состояние эпидермиса. Гидролипидная мантия функционирует стабильно. "
@@ -1194,6 +1194,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
         reply_markup=get_path_keyboard()
     )
     await state.set_state(Form.waiting_for_composition)
+
 
 @dp.callback_query(F.data == "go_scanner")
 async def go_scanner(callback: types.CallbackQuery, state: FSMContext):
