@@ -1296,7 +1296,7 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
             return
 
         tariff = get_user_tariff(user)
-                logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}")
+        logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}")
 
         if telegram_id not in UNLIMITED_IDS:
             limit_status = db.check_rate_limit(telegram_id)
