@@ -212,7 +212,7 @@ def _safe_trim(text: str, limit: int = 450) -> str:
         "СИСТЕМНЫЙ ПРОМПТ", "ФОРМАТ ОТВЕТА", "СПЕЦИАЛЬНЫЕ ПРАВИЛА"
     ]
     if any(marker in text[:500] for marker in echo_markers):
-        for emoji in ["🔴", "🟠", "🟡", "🟢", "⚪", "🔵", "⚠️"]:
+        for emoji in ["🚫", "🔴", "🟠", "🟡", "🟢", "⚪", "🔵", "⚠️"]:
             idx = text.find(emoji)
             if idx != -1:
                 pre = text[:idx]
