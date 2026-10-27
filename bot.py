@@ -1398,6 +1398,8 @@ async def process_category_choice(callback: types.CallbackQuery, state: FSMConte
     await safe_delete(callback.message)
     cat_data = callback.data.split("_")
     cat_type = cat_data[1]
+    logger.info(f"🟣 process_category_choice: callback_data={callback.data!r} → cat_type={cat_type!r}")
+    
 
     data = await state.get_data()
     pending_inci = data.get("pending_inci")
