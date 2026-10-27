@@ -1550,13 +1550,12 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
                     await callback.message.answer("⏳ Слишком много запросов. Пожалуйста, подождите немного.")
                 return
 
-        user_name = await _resolve_user_name(callback.message, state, user)
+          user_name = await _resolve_user_name(callback.message, state, user)
         category = category_fsm
-                logger.info(f"🟣 analyze_photos → analyze_composition: category={category!r}, tariff={tariff!r}")
         tariff = get_user_tariff(user)
+        logger.info(f"🟣 analyze_photos → analyze_composition: category={category!r}, tariff={tariff!r}")
 
         loading_msg = await callback.message.answer("🔍 Распознаю текст с фотографии...")
-
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
