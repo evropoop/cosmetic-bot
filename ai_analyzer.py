@@ -336,6 +336,13 @@ async def analyze_composition(
         dynamic_rules = f"{MATRIX_CARE}\n\n{LIMITER_BODY}"
     else:
         dynamic_rules = MATRIX_CARE
+            is_protocol = (tariff == "protocol" and category != "body")
+    if is_protocol:
+        dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
+
+    _has_eyes = "УХОД ДЛЯ ВЕК" in dynamic_rules
+    logger.info(f"🟣 analyze_composition: category={category!r}, rules_len={len(dynamic_rules)}, "
+                f"has_LIMITER_EYES={_has_eyes}, is_protocol={is_protocol}")
 
     is_protocol = (tariff == "protocol" and category != "body")
     if is_protocol:
