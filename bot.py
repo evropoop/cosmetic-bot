@@ -1396,6 +1396,11 @@ PHOTO_HINT = "📸 Фото состава крупно, без бликов (к
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category_choice(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
     await safe_delete(callback.message)
     cat_data = callback.data.split("_")
     cat_type = cat_data[1]
