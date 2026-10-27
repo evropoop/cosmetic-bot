@@ -1328,6 +1328,12 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
             actives = result["key_actives"]
             status = result["status"]
 
+            # 🚫 Не косметический состав — показываем шаблон, лимит НЕ списываем
+            if status == "not_composition":
+                await loading_msg.edit_text(clean_text)
+                await state.update_data(category=None, photo_urls=[])
+                return
+
             if status not in ANALYZABLE_STATUSES:
                 await loading_msg.edit_text(
                     "⚠️ Модель не смогла выдать вердикт по этому составу. Попробуйте ещё раз — лимит не списан."
