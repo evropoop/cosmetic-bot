@@ -1546,6 +1546,7 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
 
         user_name = await _resolve_user_name(callback.message, state, user)
         category = category_fsm
+                logger.info(f"🟣 analyze_photos → analyze_composition: category={category!r}, tariff={tariff!r}")
         tariff = get_user_tariff(user)
 
         loading_msg = await callback.message.answer("🔍 Распознаю текст с фотографии...")
