@@ -361,14 +361,14 @@ async def analyze_composition(
     safe_inci = sanitize_text(composition, 2000)
     safe_routine = sanitize_text(approved_routine, 1000) or "Пока нет сохраненных средств."
 
-    user_prompt = (
+        user_prompt = (
         f"Клиентка: {safe_name}\n"
         f"Диагностические состояния кожи: {safe_tags}\n"
         f"<approved_routine>\n{safe_routine}\n</approved_routine>\n"
         f"<user_input>\n{safe_inci}\n</user_input>\n\n"
-        f"ВАЖНО: Если внутри <user_input> нет химического состава (INCI) — верни строго одну фразу: "
-        f"«Для проведения химического аудита отправьте полный список компонентов средства (INCI)». "
-        f"Без статуса и без тегов."
+        f"ВАЖНО:\n"
+        f"- Если внутри <user_input> НЕТ перечня косметических ингредиентов (инструкция к препарату, рецепт, случайный текст) — верни строго шаблон с 🚫 (см. правило 2), без STAGE_TAG и ACTIVES_TAG.\n"
+        f"- Если есть отдельные INCI-компоненты, но их менее 3 (обрезанный список) — верни фразу «Для проведения химического аудита отправьте полный список компонентов средства (INCI)» без статуса."
     )
 
     system_blocks = [
