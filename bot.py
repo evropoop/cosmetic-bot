@@ -1919,6 +1919,17 @@ async def cmd_admin(message: types.Message):
 # =====================================================================
 # ENTRY POINT
 # =====================================================================
+
+
+@dp.callback_query()
+async def debug_unhandled_callbacks(callback: types.CallbackQuery):
+    logger.warning(f"🐛 НЕОБРАБОТАННЫЙ callback: data={callback.data!r} from_user={callback.from_user.id}")
+    try:
+        await callback.answer("Отладка: см. логи", show_alert=False)
+    except Exception:
+        pass
+
+
 async def main():
     asyncio.create_task(retention_worker())
 
