@@ -403,7 +403,7 @@ async def analyze_composition(
     stage_tag = stage_match.group(1).strip() if stage_match else "Актив или доп. уход"
     actives_tag = actives_match.group(1).strip() if actives_match else "Базовое увлажнение"
 
-        status_emoji = None
+    status_emoji = None
     for emoji in ("🚫", "🔴", "🟠", "🟡", "⚪", "🟢", "🔵"):
         if emoji in raw_output:
             status_emoji = emoji
