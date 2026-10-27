@@ -336,7 +336,7 @@ async def analyze_composition(
         dynamic_rules = f"{MATRIX_CARE}\n\n{LIMITER_BODY}"
     else:
         dynamic_rules = MATRIX_CARE
-            is_protocol = (tariff == "protocol" and category != "body")
+        is_protocol = (tariff == "protocol" and category != "body")
     if is_protocol:
         dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
 
