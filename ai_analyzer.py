@@ -361,7 +361,7 @@ async def analyze_composition(
     safe_inci = sanitize_text(composition, 2000)
     safe_routine = sanitize_text(approved_routine, 1000) or "Пока нет сохраненных средств."
 
-        user_prompt = (
+    user_prompt = (
         f"Клиентка: {safe_name}\n"
         f"Диагностические состояния кожи: {safe_tags}\n"
         f"<approved_routine>\n{safe_routine}\n</approved_routine>\n"
