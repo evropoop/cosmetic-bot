@@ -431,11 +431,13 @@ async def analyze_composition(
         "🟢": "good",
         "🔵": "hydrophilic",
     }
-    status = status_map.get(status_emoji, "error")
+     status = status_map.get(status_emoji, "error")
+
+    # Обрезаем STAGE_TAG/ACTIVES_TAG ДО override, чтобы override был финальным
+    clean_text = re.sub(r"\n?STAGE_TAG:.*?(\n|$)", "", raw_output).strip()
+    clean_text = re.sub(r"\n?ACTIVES_TAG:.*?(\n|$)", "", clean_text).strip()
 
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
-    # Модель может проигнорировать LIMITER_EYES, поэтому принудительно
-    # ставим 🔴 при обнаружении кислот/ретиноидов в средстве для век.
     if category == "eyes" and status not in ["not_composition", "error"]:
         safe_lower = safe_inci.lower()
 
@@ -476,9 +478,6 @@ async def analyze_composition(
             actives_tag = veto_names
             logger.warning(f"🔴 HARD OVERRIDE: eyes + {veto_names} → forced bad")
     # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
-    
-    clean_text = re.sub(r"\n?STAGE_TAG:.*?(\n|$)", "", raw_output).strip()
-    clean_text = re.sub(r"\n?ACTIVES_TAG:.*?(\n|$)", "", clean_text).strip()
 
     trim_limit = 1000 if is_protocol else 400
     if len(clean_text) > trim_limit:
