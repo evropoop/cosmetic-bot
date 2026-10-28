@@ -433,6 +433,50 @@ async def analyze_composition(
     }
     status = status_map.get(status_emoji, "error")
 
+    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
+    # Модель может проигнорировать LIMITER_EYES, поэтому принудительно
+    # ставим 🔴 при обнаружении кислот/ретиноидов в средстве для век.
+if category == "eyes" and status not in ["not_composition", "error"]:
+        safe_lower = safe_inci.lower()
+
+        eyes_veto_ingredients = {
+            "glycolic": "Glycolic Acid",
+            "lactic acid": "Lactic Acid",
+            "salicylic": "Salicylic Acid",
+            "mandelic": "Mandelic Acid",
+            "azelaic": "Azelaic Acid",
+            "lactobionic": "Lactobionic Acid",
+            "gluconolactone": "Gluconolactone",
+            "retinol": "Retinol",
+            "retinal": "Retinal",
+            "retinyl palmitate": "Retinyl Palmitate",
+            "retinyl acetate": "Retinyl Acetate",
+            "hydroxypinacolone retinoate": "Hydroxypinacolone Retinoate",
+            "adapalene": "Adapalene",
+            "ascorbic acid": "Ascorbic Acid",
+            "l-ascorbic acid": "L-Ascorbic Acid",
+        }
+
+        found_veto = [name for key, name in eyes_veto_ingredients.items() if key in safe_lower]
+
+        if found_veto:
+            veto_names = ", ".join(found_veto)
+            clean_text = (
+                f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе для зоны вокруг глаз "
+                f"обнаружены активы, недопустимые для тонкой кожи периорбитальной зоны: {veto_names}. "
+                f"Кожа век в 4 раза тоньше кожи лица — эти компоненты вызовут ожог, дерматит "
+                f"и истончение периорбитальной зоны. Никакой парковки и никакого ввода в рутину: "
+                f"средство не подходит для этой зоны. Замените на безопасный крем с пептидами, "
+                f"скваланом, пантенолом или церамидами — вы можете быть спокойны, я помогу "
+                f"подобрать рабочую альтернативу."
+            )
+            status = "bad"
+            status_emoji = "🔴"
+            stage_tag = "Актив или доп. уход"
+            actives_tag = veto_names
+            logger.warning(f"🔴 HARD OVERRIDE: eyes + {veto_names} → forced bad")
+    # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
+    
     clean_text = re.sub(r"\n?STAGE_TAG:.*?(\n|$)", "", raw_output).strip()
     clean_text = re.sub(r"\n?ACTIVES_TAG:.*?(\n|$)", "", clean_text).strip()
 
