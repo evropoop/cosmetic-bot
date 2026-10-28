@@ -436,7 +436,7 @@ async def analyze_composition(
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
     # Модель может проигнорировать LIMITER_EYES, поэтому принудительно
     # ставим 🔴 при обнаружении кислот/ретиноидов в средстве для век.
-if category == "eyes" and status not in ["not_composition", "error"]:
+    if category == "eyes" and status not in ["not_composition", "error"]:
         safe_lower = safe_inci.lower()
 
         eyes_veto_ingredients = {
