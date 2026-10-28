@@ -431,7 +431,7 @@ async def analyze_composition(
         "🟢": "good",
         "🔵": "hydrophilic",
     }
-     status = status_map.get(status_emoji, "error")
+    status = status_map.get(status_emoji, "error")
 
     # Обрезаем STAGE_TAG/ACTIVES_TAG ДО override, чтобы override был финальным
     clean_text = re.sub(r"\n?STAGE_TAG:.*?(\n|$)", "", raw_output).strip()
