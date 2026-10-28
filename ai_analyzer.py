@@ -121,15 +121,20 @@ MATRIX_CARE = """ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДК
 - Шаблон: «🟢 ОДОБРЯЮ.»"""
 
 
-LIMITER_EYES = """ВНИМАНИЕ! КРИТИЧЕСКОЕ ПЕРЕОПРЕДЕЛЕНИЕ ПРАВИЛ (OVERRIDE) ДЛЯ ВЕК: 
-ЭТОТ БЛОК ИМЕЕТ ВЫСШИЙ ПРИОРИТЕТ. ИГНОРИРУЙ ЛЮБЫЕ ПРАВИЛА И ЗАПРЕТЫ КАСАТЕЛЬНО РЕТИНОИДОВ ИЗ MATRIX_CARE ПРИ АНАЛИЗЕ ЭТОГО СРЕДСТВА!
+LIMITER_EYES = """ВНИМАНИЕ! КРИТИЧЕСКОЕ ПЕРЕОПРЕДЕЛЕНИЕ ПРАВИЛ (OVERRIDE):
+Зона применения — ВЕКИ. Кожа век в 4 раза тоньше кожи лица. Правила ниже ПЕРЕОПРЕДЕЛЯЮТ MATRIX_CARE для этого продукта. Игнорируй общий запрет на ретиноиды из MATRIX_CARE — для век действует отдельное правило (см. п.2).
 
-1. Средство предназначено для зоны вокруг глаз. Применяй ТОЛЬКО эти правила: ВЕТО НА КИСЛОТЫ: Любые AHA/BHA кислоты (Glycolic, Lactic, Salicylic) МГНОВЕННО получают 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. Никаких исключений (риск ожога и истончения).
-2. ПРАВИЛО РЕТИНОИДОВ (ОТМЕНЯЕТ БАЗУ): Если в составе есть Retinol, Retinal или Retinyl Retinoate, оцени базу. Если в базе ЕСТЬ физиологичные липиды (Ceramide, Cholesterol, Squalane, масла) и у клиента НЕТ тегов [Сломан барьер, Беременность, Шелушения], выдай 🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ. Обязательно предупреди, что это актив для век, и его нужно вводить строго по схеме ретинизации (начиная с 1-2 раз в неделю на сухую кожу). 
-3. Если ретиноид есть, но база пустая/спиртовая ИЛИ у клиента стоит тег [Сломан барьер / Беременность] — 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (риск ожога или тератогенность). 
-4. ДОПОЛНИТЕЛЬНО: Эфирные масла (Citrus, Mentha, Eucalyptus, Lavandula, Rosmarinus) или агрессивные отдушки в первой половине INCI — 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (риск отека и раздражения слизистой). 
-5. ДОПОЛНИТЕЛЬНО: Рабочие пептиды, Caffeine, Niacinamide, Ceramide, Squalane, Panthenol, гиалуроновая кислота ДО консервантов — 🟢 ОДОБРЯЮ. Хвали за работу с микроциркуляцией и плотностью кожи."""
+1. ВЕТО НА КИСЛОТЫ: Любые кислоты (Glycolic, Lactic, Salicylic, AHA/BHA) МГНОВЕННО получают 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. Никаких исключений, никаких парковок, никаких жёлтых статусов. Объясни клиенту, что эти активы вызовут ожог, дерматит и истончение кожи периорбитальной зоны.
 
+2. ПРАВИЛО РЕТИНОИДОВ (РАЗРЕШЕНИЕ): Если в составе есть Retinol, Retinal или Retinyl Retinoate, ОЦЕНИ БАЗУ. Если в базе ЕСТЬ липиды (Ceramide, Cholesterol, Squalane, масла) И у клиента НЕТ тегов [Сломан барьер], [Беременность], [Шелушения] — выдай 🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ. Предупреди о вводе по схеме ретинизации (микродозы, на сухую кожу, 1–2 раза в неделю, избегать подвижного века).
+
+3. ПУСТАЯ БАЗА ИЛИ РИСК: Если ретиноид есть, но база пустая/спиртовая ИЛИ у клиента есть тег [Сломан барьер] или [Беременность] — 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (ожог/тератогенность).
+
+4. Эфирные масла (Citrus, Mentha, Eucalyptus, Lavandula, Rosmarinus) или агрессивные отдушки в начале состава — 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (риск отека и раздражения слизистой).
+
+5. Рабочие пептиды, Caffeine, Niacinamide, Ceramide, Squalane, Panthenol, гиалуроновая кислота ДО консервантов — 🟢 ОДОБРЯЮ. Хвали за работу с микроциркуляцией и плотностью кожи периорбитальной зоны.
+
+6. Единственное исключение, которое НЕ отменяется этим блоком — АБСОЛЮТНОЕ ВЕТО по беременности и аллергии из MATRIX_CARE."""
 
 LIMITER_BODY = """МОДИФИКАТОР КАТЕГОРИИ «УХОД ДЛЯ ТЕЛА» (Имеет ПРИОРИТЕТ над MATRIX_CARE во всем, кроме АБСОЛЮТНОГО ВЕТО по беременности и аллергии):
 ВАЖНО: Игнорируй теги кожи лица ([Сломан барьер], [Себопрофицит], [Проблемная], [Реактивность]), так как они относятся к лицу, а не к телу!
@@ -435,10 +440,12 @@ async def analyze_composition(
     clean_text = re.sub(r"\n?ACTIVES_TAG:.*?(\n|$)", "", clean_text).strip()
 
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
+    # Кислоты — безусловное вето. Ретиноиды — только если база плохая или есть риск-теги.
     if category == "eyes" and status not in ["not_composition", "error"]:
         safe_lower = safe_inci.lower()
 
-        eyes_veto_ingredients = {
+        # 1) КИСЛОТЫ — всегда 🔴
+        eyes_acid_veto = {
             "glycolic": "Glycolic Acid",
             "lactic acid": "Lactic Acid",
             "salicylic": "Salicylic Acid",
@@ -446,20 +453,54 @@ async def analyze_composition(
             "azelaic": "Azelaic Acid",
             "lactobionic": "Lactobionic Acid",
             "gluconolactone": "Gluconolactone",
+            "ascorbic acid": "Ascorbic Acid",
+            "l-ascorbic acid": "L-Ascorbic Acid",
+        }
+        found_acids = [name for key, name in eyes_acid_veto.items() if key in safe_lower]
+
+        # 2) РЕТИНОИДЫ — только если база плохая или есть риск-теги
+        eyes_retinoid = {
             "retinol": "Retinol",
             "retinal": "Retinal",
             "retinyl palmitate": "Retinyl Palmitate",
             "retinyl acetate": "Retinyl Acetate",
             "hydroxypinacolone retinoate": "Hydroxypinacolone Retinoate",
+            "retinyl retinoate": "Retinyl Retinoate",
             "adapalene": "Adapalene",
-            "ascorbic acid": "Ascorbic Acid",
-            "l-ascorbic acid": "L-Ascorbic Acid",
         }
+        found_retinoids = [name for key, name in eyes_retinoid.items() if key in safe_lower]
 
-        found_veto = [name for key, name in eyes_veto_ingredients.items() if key in safe_lower]
+        # Есть ли в базе липиды?
+        lipid_markers = ["ceramide", "cholesterol", "squalane", "shea butter", "butyrospermum",
+                         "jojoba", "argania", "prunus amygdalus", "macadamia", "olea europaea",
+                         "caprylic/capric triglyceride", "glycerin"]
+        has_lipids = any(m in safe_lower for m in lipid_markers)
 
-        if found_veto:
-            veto_names = ", ".join(found_veto)
+        # Есть ли риск-теги?
+        risk_tags = {"barrier_broken", "pregnancy", "peeling"}
+        has_risk = any(t in tags for t in risk_tags)
+
+        # Спирт в первой половине?
+        head = safe_lower[:len(safe_lower)//2]
+        has_strong_alcohol = any(a in head for a in ["alcohol denat", "ethanol,", " isopropyl alcohol"])
+
+        force_bad = False
+        reason = ""
+
+        if found_acids:
+            force_bad = True
+            reason = f"eyes + кислоты: {', '.join(found_acids)}"
+
+        elif found_retinoids:
+            if has_risk:
+                force_bad = True
+                reason = f"eyes + ретиноид {', '.join(found_retinoids)} при риск-теге"
+            elif not has_lipids or has_strong_alcohol:
+                force_bad = True
+                reason = f"eyes + ретиноид {', '.join(found_retinoids)} в плохой базе (нет липидов / спирт)"
+
+        if force_bad:
+            veto_names = ", ".join(found_acids + found_retinoids)
             clean_text = (
                 f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе для зоны вокруг глаз "
                 f"обнаружены активы, недопустимые для тонкой кожи периорбитальной зоны: {veto_names}. "
@@ -473,7 +514,7 @@ async def analyze_composition(
             status_emoji = "🔴"
             stage_tag = "Актив или доп. уход"
             actives_tag = veto_names
-            logger.warning(f"🔴 HARD OVERRIDE: eyes + {veto_names} → forced bad")
+            logger.warning(f"🔴 HARD OVERRIDE ({reason}) → forced bad")
     # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
 
     trim_limit = 1000 if is_protocol else 400
