@@ -542,15 +542,17 @@ async def analyze_composition(
             logger.warning(f"🔴 HARD OVERRIDE ({reason}) → forced bad")
     # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
 
-    # === ПРИНУДИТЕЛЬНЫЙ ШАБЛОН РЕТИНИЗАЦИИ (глаза, 🟡) ===
-    if category == "eyes" and status == "conditional" and found_retinoids_if_any:
+       # === ПРИНУДИТЕЛЬНЫЙ ШАБЛОН РЕТИНИЗАЦИИ (глаза, 🟡) ===
+    if category == "eyes" and status == "conditional" and found_retinoids:
+        retinoid_names = ", ".join(found_retinoids)
         clean_text = (
             f"{safe_name}, 🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ. В составе присутствует ретиноид "
-            f"({found_retinoids_if_any}) — рабочая концентрация до консерванта. База грамотная, "
+            f"({retinoid_names}) — рабочая концентрация до консерванта. База грамотная, "
             f"липиды поддерживают барьер. Однако ретиноид для зоны вокруг глаз требует осторожного ввода: "
             f"вводить по схеме ретинизации, наносить микродозу размером с рисовое зерно исключительно "
             f"на периорбитальную зону (вокруг глаз)."
         )
+        logger.info(f"🟡 RETINOID TEMPLATE: заменён текст на шаблон для {retinoid_names}")
     # === КОНЕЦ ПРИНУДИТЕЛЬНОГО ШАБЛОНА ===
     
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: АЛЛЕРГИЯ (все категории) ===
