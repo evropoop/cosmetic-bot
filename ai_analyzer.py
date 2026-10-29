@@ -401,8 +401,17 @@ async def analyze_composition(
 
     max_tokens = 1000 if is_protocol else 350
 
-    safe_name = sanitize_text(user_name, 30) or "Клиент"
-    translated = _translate_tags(tags)
+       safe_name = sanitize_text(user_name, 30) or "Клиент"
+
+    # Для тела отфильтровываем лицевые теги — оставляем только pregnancy, allergy_*, normal
+    if category == "body":
+        body_keep = {"pregnancy", "normal"}
+        tags_for_prompt = [t for t in tags if t in body_keep or t.startswith("allergy_")]
+        logger.info(f"🟣 BODY TAG FILTER: было {tags!r}, стало {tags_for_prompt!r}")
+    else:
+        tags_for_prompt = tags
+
+    translated = _translate_tags(tags_for_prompt)
     if translated == "нет данных":
         safe_tags = "нет данных"
     else:
