@@ -192,6 +192,7 @@ TAG_MAP = {
     "fat_compensatory": "Компенсаторная жирность",
     "reactive": "Реактивность",
     "medicine": "Медицина",
+    "medicine_skin": "Кожные заболевания",
     "pregnancy": "Беременность",
     "normal": "Норма",
 }
