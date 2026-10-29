@@ -399,7 +399,7 @@ async def analyze_composition(
 
     # Для тела отфильтровываем лицевые теги — оставляем только pregnancy, allergy_*, normal
     if category == "body":
-        body_keep = {"pregnancy", "normal"}
+        body_keep = {"pregnancy", "normal", "normal_exclusive"}
         tags_for_prompt = [t for t in tags if t in body_keep or t.startswith("allergy_")]
         logger.info(f"🟣 BODY TAG FILTER: было {tags!r}, стало {tags_for_prompt!r}")
     else:
