@@ -145,7 +145,7 @@ LIMITER_BODY = """⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА
 - ЕСЛИ пенящихся ПАВов нет, а в основе вода, масла/баттеры, эмоленты и эмульгаторы (Cetearyl Alcohol, Glyceryl Stearate и др.) — перед тобой НЕСМЫВАЕМЫЙ ЛОСЬОН, МОЛОЧКО ИЛИ КРЕМ ДЛЯ ТЕЛА. Оценивай его по Пунктам 1, 2 и 4 ниже.
 
 ПРАВИЛА ОЦЕНКИ ДЛЯ ТЕЛА:
-1. ОТМЕНА КОМЕДОГЕННОСТИ БАЗ (Для кремов и лосьонов): Плотные баттеры и окклюзивы (Shea Butter / Butyrospermum Parkii, Cocoa Butter, Coconut Oil, Mineral Oil, Petrolatum) для тела ПРИВЕТСТВУЮТСЯ и получают 🟢 ОДОБРЯЮ.
+1. ОТМЕНА КОМЕДОГЕННОСТИ БАЗ (Для кремов и лосьонов): Плотные баттеры и окклюзивы — Shea Butter / Butyrospermum Parkii, Cocoa Butter / Theobroma Cacao, Coconut Oil / Cocos Nucifera, Mineral Oil / Paraffinum Liquidum, Petrolatum, Isopropyl Myristate, Isopropyl Palmitate, Myristyl Myristate — для тела ПРИВЕТСТВУЮТСЯ и ВСЕГДА получают 🟢 ОДОБРЯЮ. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО выдавать 🟡, 🟠 или 🔴 из-за «комедогенности» этих компонентов в средствах для ТЕЛА. Индексы комедогенности (от 0 до 5) для тела НЕ ПРИМЕНЯЮТСЯ — кожа тела в 5 раз толще кожи лица, сальные железы работают иначе, поры не забиваются. Даже если у клиентки есть тег [Акне] или [Комедоны] — это про лицо, а не про тело.
 2. АКТИВЫ ДЛЯ ТЕЛА (БЕЗ ПАРКОВКИ): Если видишь Urea (Мочевину), кислоты (Lactic Acid, Salicylic Acid, Glycolic Acid), Caffeine, Centella Asiatica или Niacinamide ДО консервантов (и нет вето по беременности) — выдавай 🟢 ОДОБРЯЮ (не выдавай желтый статус и не паркуй кислоты для тела!). Хвали за работу с рельефом, гиперкератозом или дренажем.
 3. ЕСЛИ ЭТО ГЕЛЬ ДЛЯ ДУША (есть ПАВы): при наличии связки SLS/SLES + Sodium Chloride в начале списка без мягких со-ПАВов и эмолентов — выдавай 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ и пиши: «Этот гель разрушит липидный барьер кожи тела, используйте мягкие ПАВы». Если ПАВы мягкие (или сульфаты смягчены бетаином, глюкозидами и маслами) — выдавай 🟢 ОДОБРЯЮ.
 4. ПУСТЫШКИ (Только для несмываемых кремов/лосьонов): если в креме или лосьоне для тела только вода, глицерин и дешевые силиконы (Dimethicone) без масел и активов до консервантов — выдавай ⚪ ПУСТЫШКА и пиши: «Маркетинговая пустышка. Создаст лишь временную пленку до первого душа»."""
@@ -351,7 +351,20 @@ async def analyze_composition(
             f"{LIMITER_EYES}"
         )
     elif category == "body":
-        dynamic_rules = f"{MATRIX_CARE}\n\n{LIMITER_BODY}"
+        dynamic_rules = (
+            "=========================================\n"
+            "КРИТИЧЕСКИЙ ПРИОРИТЕТ ПРОМПТА:\n"
+            "Правила ниже ПЕРЕОПРЕДЕЛЯЮТ любые правила MATRIX_CARE. "
+            "Кожа тела НЕ склонна к акне и комедонам так, как лицо. "
+            "Игнорируй лицевые теги — для тела важны только [Беременность] и [Аллергия].\n"
+            "При любом конфликте действует правило из блока ниже.\n"
+            "=========================================\n\n"
+            f"{LIMITER_BODY}\n\n"
+            "=========================================\n"
+            "БАЗОВАЯ МАТРИЦА (применяется только если модификатор выше не покрывает случай):\n"
+            "=========================================\n\n"
+            f"{MATRIX_CARE}"
+        )
     else:
         dynamic_rules = MATRIX_CARE
 
@@ -555,6 +568,44 @@ async def analyze_composition(
         logger.info(f"🟡 RETINOID TEMPLATE: заменён текст на шаблон для {retinoid_names}")
     # === КОНЕЦ ПРИНУДИТЕЛЬНОГО ШАБЛОНА ===
     
+    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: КОМЕДОГЕННАЯ БАЗА ПРИ АКНЕ (только лицо/глаза) ===
+    has_acne = any(t in tags for t in ["acne", "comedones", "problem"])
+    if has_acne and category in ["care", "eyes"] and status not in ["not_composition", "error", "bad"]:
+        safe_lower_comedo = safe_inci.lower()
+        comedo_ingredients = {
+            "isopropyl myristate": "Isopropyl Myristate",
+            "isopropyl palmitate": "Isopropyl Palmitate",
+            "myristyl myristate": "Myristyl Myristate",
+            "isopropyl isostearate": "Isopropyl Isostearate",
+            "coconut oil": "Coconut Oil",
+            "cocos nucifera": "Cocos Nucifera (Coconut) Oil",
+            "wheat germ oil": "Wheat Germ Oil",
+            "triticum vulgare": "Triticum Vulgare (Wheat Germ) Oil",
+            "algae extract": "Algae Extract",
+            "laureth-4": "Laureth-4",
+            "linseed oil": "Linseed Oil",
+            "linum usitatissimum": "Linum Usitatissimum (Linseed) Oil",
+            "sodium chloride": "Sodium Chloride",
+        }
+        found_comedo = [name for key, name in comedo_ingredients.items() if key in safe_lower_comedo]
+
+        if found_comedo:
+            comedo_names = ", ".join(found_comedo)
+            clean_text = (
+                f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. При склонности к акне и комедонам "
+                f"база этого средства содержит высококомедогенные компоненты: {comedo_names}. "
+                f"Даже если в составе есть рабочие активы (ниацинамид, цинк, салициловая кислота), "
+                f"комедогенная база перекроет их эффект и спровоцирует новые закрытые комедоны и воспаления. "
+                f"Наносить нельзя — замените на средство с некомедогенной базой (сквалан, "
+                f"каприловый/каприновый триглицерид, глицерин, гиалуроновая кислота). "
+                f"Вы можете быть спокойны, я помогу подобрать безопасную альтернативу."
+            )
+            status = "bad"
+            status_emoji = "🔴"
+            stage_tag = "Актив или доп. уход"
+            actives_tag = comedo_names
+            logger.warning(f"🔴 COMEDO HARD OVERRIDE: acne + {comedo_names} → forced bad")
+    # === КОНЕЦ КОМЕДО-КОНТРОЛЯ ===
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: АЛЛЕРГИЯ (все категории) ===
     if allergies and status not in ["not_composition", "error"]:
         safe_lower_all = safe_inci.lower()
