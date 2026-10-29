@@ -441,7 +441,7 @@ async def analyze_composition(
         {"type": "text", "text": dynamic_rules}
     ]
 
-       def _extract_status(text: str) -> str:
+    def _extract_status(text: str) -> str:
         if not text:
             return None
         for emoji in ("🚫", "🔴", "🟠", "🟡", "⚪", "🟢", "🔵"):
