@@ -615,6 +615,49 @@ async def analyze_composition(
             actives_tag = comedo_names
             logger.warning(f"🔴 COMEDO HARD OVERRIDE: acne + {comedo_names} → forced bad")
     # === КОНЕЦ КОМЕДО-КОНТРОЛЯ ===
+
+        # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ ТЕЛА: НЕ ПУСТЫШКА И НЕ ПАРКОВКА, ЕСЛИ БАЗА ФИЗИОЛОГИЧНА ===
+    if category == "body" and status in ["neutral", "conditional", "hidden_threat"]:
+        safe_lower_body = safe_inci.lower()
+
+        # 1) Плохие для тела компоненты (жёсткие сульфаты, спирт в начале, токсичный УФ-фильтр)
+        body_bad = []
+        if any(s in safe_lower_body for s in ["sodium lauryl sulfate", "sodium laureth sulfate",
+                                              "ammonium lauryl sulfate", "sodium coco-sulfate"]):
+            body_bad.append("жёсткие сульфаты")
+        head_body = safe_lower_body[:len(safe_lower_body)//2]
+        if any(a in head_body for a in ["alcohol denat", "ethanol,", " isopropyl alcohol"]):
+            body_bad.append("спирт в начале")
+        if "benzophenone-3" in safe_lower_body or "oxybenzone" in safe_lower_body:
+            body_bad.append("Oxybenzone")
+
+        # 2) Эмоленты, баттеры, увлажнители, активы для тела
+        body_good_markers = [
+            "shea butter", "butyrospermum", "cocoa butter", "theobroma cacao",
+            "coconut oil", "cocos nucifera", "isopropyl myristate", "isopropyl palmitate",
+            "myristyl myristate", "caprylic/capric", "squalane", "jojoba", "argania",
+            "macadamia", "olea europaea", "paraffinum liquidum", "mineral oil",
+            "glycerin", "urea", "lactic acid", "glycolic acid", "salicylic acid",
+            "caffeine", "centella", "niacinamide", "panthenol", "allantoin",
+            "ceramide", "cholesterol", "hyaluronic",
+        ]
+        has_body_good = any(m in safe_lower_body for m in body_good_markers)
+
+        if has_body_good and not body_bad:
+            clean_text = (
+                f"{safe_name}, 🟢 ОДОБРЯЮ. Грамотная физиологичная база для ухода за кожей тела. "
+                f"Эмоленты и увлажнители в составе обеспечат поддержку барьера и комфорт кожи тела. "
+                f"Кожа тела толще лица, менее склонна к акне и комедонам, сальные железы работают иначе — "
+                f"плотные баттеры, окклюзивы и «активы в конце списка» здесь работают мягко и физиологично. "
+                f"Вы можете быть спокойны."
+            )
+            status = "good"
+            status_emoji = "🟢"
+            stage_tag = "Базовый крем"
+            actives_tag = "Увлажнение и поддержка барьера тела"
+            logger.warning(f"🟢 BODY OVERRIDE: {status_emoji_original if 'status_emoji_original' in dir() else 'neutral/conditional'} → forced good")
+    # === КОНЕЦ BODY-КОНТРОЛЯ ===
+    
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: АЛЛЕРГИЯ (все категории) ===
     if allergies and status not in ["not_composition", "error"]:
         safe_lower_all = safe_inci.lower()
