@@ -441,14 +441,27 @@ async def analyze_composition(
         {"type": "text", "text": dynamic_rules}
     ]
 
+       def _extract_status(text: str) -> str:
+        if not text:
+            return None
+        for emoji in ("🚫", "🔴", "🟠", "🟡", "⚪", "🟢", "🔵"):
+            if emoji in text:
+                return emoji
+        return None
+
     raw_output = await _call_llm(system_blocks, user_prompt, 0.1, max_tokens)
     if raw_output:
         raw_output = _safe_trim(raw_output, 1200 if is_protocol else 500)
-    if not raw_output:
-        raw_output = await _call_llm(system_blocks, user_prompt, 0.0, max_tokens)
-        if raw_output:
-            raw_output = _safe_trim(raw_output, 1200 if is_protocol else 500)
 
+    # Если пусто ИЛИ нет эмодзи — retry с temperature 0
+    if not raw_output or _extract_status(raw_output) is None:
+        logger.warning(f"⚠️ Первый ответ без эмодзи (len={len(raw_output or '')}), retry с temp=0")
+        retry_raw = await _call_llm(system_blocks, user_prompt, 0.0, max_tokens)
+        if retry_raw:
+            retry_trimmed = _safe_trim(retry_raw, 1200 if is_protocol else 500)
+            if _extract_status(retry_trimmed) is not None or not raw_output:
+                raw_output = retry_trimmed
+                logger.info(f"✅ Retry успешен, эмодзи={_extract_status(raw_output)}")
     if not raw_output:
         return {
             "verdict": "⚠️ НЕДОСТАТОЧНО ДАННЫХ. Не удалось обработать состав. Попробуйте ещё раз — лимит не списан.",
