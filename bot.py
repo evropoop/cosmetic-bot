@@ -58,9 +58,10 @@ db.init_db()
 def sanitize_input(text: str, max_len: int = 2000) -> str:
     if not text:
         return ""
-    text = re.sub(r'[\[\]\{\}<>]', '', text)
-    text = re.sub(r'[\n\r]+', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'[\[\]\{\}<>()«»"\']', '', text)
+    text = re.sub(r'[\n\r\t]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip(' .,;:/')
     return text[:max_len]
 
 
