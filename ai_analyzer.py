@@ -463,8 +463,9 @@ async def analyze_composition(
     clean_text = re.sub(r"\n?STAGE_TAG:.*?(\n|$)", "", raw_output).strip()
     clean_text = re.sub(r"\n?ACTIVES_TAG:.*?(\n|$)", "", clean_text).strip()
 
-    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
-    # Кислоты — безусловное вето. Ретиноиды — только если база плохая или есть риск-теги.
+       # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
+    found_acids = []
+    found_retinoids = []
     if category == "eyes" and status not in ["not_composition", "error"]:
         safe_lower = safe_inci.lower()
 
@@ -540,6 +541,17 @@ async def analyze_composition(
             actives_tag = veto_names
             logger.warning(f"🔴 HARD OVERRIDE ({reason}) → forced bad")
     # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
+
+    # === ПРИНУДИТЕЛЬНЫЙ ШАБЛОН РЕТИНИЗАЦИИ (глаза, 🟡) ===
+    if category == "eyes" and status == "conditional" and found_retinoids_if_any:
+        clean_text = (
+            f"{safe_name}, 🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ. В составе присутствует ретиноид "
+            f"({found_retinoids_if_any}) — рабочая концентрация до консерванта. База грамотная, "
+            f"липиды поддерживают барьер. Однако ретиноид для зоны вокруг глаз требует осторожного ввода: "
+            f"вводить по схеме ретинизации, наносить микродозу размером с рисовое зерно исключительно "
+            f"на периорбитальную зону (вокруг глаз)."
+        )
+    # === КОНЕЦ ПРИНУДИТЕЛЬНОГО ШАБЛОНА ===
     
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: АЛЛЕРГИЯ (все категории) ===
     if allergies and status not in ["not_composition", "error"]:
