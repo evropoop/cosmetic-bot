@@ -392,9 +392,7 @@ async def analyze_composition(
 
     _has_eyes = "УХОД ДЛЯ ВЕК" in dynamic_rules
     logger.info(f"🟣 analyze_composition: category={category!r}, rules_len={len(dynamic_rules)}, has_LIMITER_EYES={_has_eyes}")
-    _has_eyes = "УХОД ДЛЯ ВЕК" in dynamic_rules
-    logger.info(f"🟣 analyze_composition: category={category!r}, rules_len={len(dynamic_rules)}, has_LIMITER_EYES={_has_eyes}")
-
+   
     max_tokens = 1000 if is_protocol else 350
 
     safe_name = sanitize_text(user_name, 30) or "Клиент"
