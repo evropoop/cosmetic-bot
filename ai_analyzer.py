@@ -584,9 +584,9 @@ async def analyze_composition(
         logger.info(f"🟡 RETINOID TEMPLATE: заменён текст на шаблон для {retinoid_names}")
     # === КОНЕЦ ПРИНУДИТЕЛЬНОГО ШАБЛОНА ===
     
-    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: КОМЕДОГЕННАЯ БАЗА ПРИ АКНЕ (только лицо/глаза) ===
+        # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: КОМЕДОГЕННАЯ БАЗА ПРИ АКНЕ (все категории лица, ВКЛЮЧАЯ смываемые) ===
     has_acne = any(t in tags for t in ["acne", "comedones", "problem"])
-    if has_acne and category in ["care", "eyes"] and status not in ["not_composition", "error", "bad"]:
+    if has_acne and category in ["care", "eyes", "wash"] and status not in ["not_composition", "error", "bad"]:
         safe_lower_comedo = safe_inci.lower()
         comedo_ingredients = {
             "isopropyl myristate": "Isopropyl Myristate",
