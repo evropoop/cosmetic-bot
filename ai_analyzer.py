@@ -401,7 +401,7 @@ async def analyze_composition(
 
     max_tokens = 1000 if is_protocol else 350
 
-       safe_name = sanitize_text(user_name, 30) or "Клиент"
+    safe_name = sanitize_text(user_name, 30) or "Клиент"
 
     # Для тела отфильтровываем лицевые теги — оставляем только pregnancy, allergy_*, normal
     if category == "body":
