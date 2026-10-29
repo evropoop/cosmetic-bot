@@ -1170,7 +1170,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
     diagnosis_text = f"🤖 {user_name},\n\n"
 
     # === БЛОК 1: КРАСНЫЕ ФЛАГИ ===
-    if "medicine" in tags:
+    if any(t in tags for t in ["medicine", "medicine_skin"]):
         diagnosis_text += (
             "❗️ Вижу по анамнезу дерматологический диагноз. Напоминаю: я химик-технолог, "
             "а не врач. Моя компетенция — анализ химических формул и выстраивание безопасного "
