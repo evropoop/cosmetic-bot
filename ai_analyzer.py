@@ -357,7 +357,31 @@ async def analyze_composition(
     is_protocol = (tariff == "protocol" and category != "body")
     if is_protocol:
         dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
+    is_protocol = (tariff == "protocol" and category != "body")
+    if is_protocol:
+        dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
 
+    # === CRITICAL_PRE_CHECK: АЛЛЕРГИЯ ===
+    allergies = [t[len("allergy_"):] for t in tags if t.startswith("allergy_")]
+    if allergies:
+        allergy_str = ", ".join(allergies)
+        pre_check_block = (
+            "<CRITICAL_PRE_CHECK>\n"
+            f"ТЕГ АЛЛЕРГИИ: [Аллергия на {allergy_str}]\n"
+            f"ИНСТРУКЦИЯ: Перед тем как анализировать состав на увлажнение, барьер или беременность, "
+            f"сначала найди компонент «{allergy_str}» (и его производные — Extract, Oil, Water, Ferment, "
+            f"а также латинские/английские синонимы) в INCI.\n"
+            f"ЕСЛИ НАЙДЕН: Твоя работа закончена. Ничего не анализируй. Сразу пиши "
+            f"«🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ» и останавливай генерацию. Никаких 🟢 и 🟡, даже если компонент "
+            f"входит в список разрешённых активов (Niacinamide, Panthenol, Squalane, пептиды, Ceramide).\n"
+            f"ЕСЛИ НЕ НАЙДЕН: продолжай анализ по правилам ниже как обычно.\n"
+            f"</CRITICAL_PRE_CHECK>\n\n"
+        )
+        dynamic_rules = pre_check_block + dynamic_rules
+        logger.info(f"🟣 PRE_CHECK: аллергии={allergies!r}, блок добавлен")
+
+    _has_eyes = "УХОД ДЛЯ ВЕК" in dynamic_rules
+    logger.info(f"🟣 analyze_composition: category={category!r}, rules_len={len(dynamic_rules)}, has_LIMITER_EYES={_has_eyes}")
     _has_eyes = "УХОД ДЛЯ ВЕК" in dynamic_rules
     logger.info(f"🟣 analyze_composition: category={category!r}, rules_len={len(dynamic_rules)}, has_LIMITER_EYES={_has_eyes}")
 
@@ -515,7 +539,56 @@ async def analyze_composition(
             actives_tag = veto_names
             logger.warning(f"🔴 HARD OVERRIDE ({reason}) → forced bad")
     # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
+    
+    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: АЛЛЕРГИЯ (все категории) ===
+    if allergies and status not in ["not_composition", "error"]:
+        safe_lower_all = safe_inci.lower()
+        found_allergens = []
+        for allergen in allergies:
+            al_lower = allergen.lower().strip()
+            if not al_lower:
+                continue
+            # Простое вхождение
+            if al_lower in safe_lower_all:
+                found_allergens.append(allergen)
+                continue
+            # Латинские синонимы для частых аллергенов
+            synonyms_map = {
+                "мята": ["mentha", "peppermint"],
+                "ромашка": ["chamomilla", "chamomile"],
+                "мед": ["honey", "mel ", "propolis", "beeswax", "cera alba"],
+                "мёд": ["honey", "mel ", "propolis", "beeswax", "cera alba"],
+                "лаванда": ["lavandula", "lavender"],
+                "цитрус": ["citrus", "limonene", "linalool", "citral"],
+                "лимон": ["citrus limon", "lemon", "limonene"],
+                "апельсин": ["citrus sinensis", "orange", "limonene"],
+                "никель": ["nickel"],
+                "латекс": ["latex", "hevea"],
+                "прополис": ["propolis"],
+                "пчелиный воск": ["beeswax", "cera alba"],
+            }
+            for syn in synonyms_map.get(al_lower, []):
+                if syn in safe_lower_all:
+                    found_allergens.append(f"{allergen} (как {syn.strip()})")
+                    break
 
+        if found_allergens:
+            allergen_names = ", ".join(found_allergens)
+            clean_text = (
+                f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе обнаружен ваш аллерген: "
+                f"{allergen_names}. По правилу абсолютного приоритета аллергии этот продукт "
+                f"автоматически блокируется — даже если компонент обычно считается безопасным "
+                f"(Niacinamide, Panthenol, растительный экстракт и т.д.). Наносить нельзя: риск "
+                f"аллергической реакции, контактного дерматита и отёка. Замените на средство без "
+                f"этого компонента — вы можете быть спокойны, я помогу подобрать безопасную альтернативу."
+            )
+            status = "bad"
+            status_emoji = "🔴"
+            stage_tag = "Актив или доп. уход"
+            actives_tag = allergen_names
+            logger.warning(f"🔴 ALLERGY HARD OVERRIDE: {allergen_names} → forced bad")
+    # === КОНЕЦ АЛЛЕРГИЯ-КОНТРОЛЯ ===
+    
     trim_limit = 1000 if is_protocol else 400
     if len(clean_text) > trim_limit:
         cut = clean_text[:trim_limit].rfind(".")
