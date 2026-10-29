@@ -370,9 +370,6 @@ async def analyze_composition(
     is_protocol = (tariff == "protocol" and category != "body")
     if is_protocol:
         dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
-    is_protocol = (tariff == "protocol" and category != "body")
-    if is_protocol:
-        dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
 
     # === CRITICAL_PRE_CHECK: АЛЛЕРГИЯ ===
     allergies = [t[len("allergy_"):] for t in tags if t.startswith("allergy_")]
