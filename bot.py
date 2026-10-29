@@ -1001,7 +1001,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
                 await callback.answer("Выберите хотя бы один вариант!", show_alert=True)
                 return
         elif step == 4:
-            has_tag = any(t in tags for t in ["reactive", "medicine", "pregnancy", "normal_exclusive", "medicine_other"])
+            has_tag = any(t in tags for t in ["reactive", "medicine", "medicine_skin", "pregnancy", "normal_exclusive", "medicine_other"])
             if not has_tag:
                 await callback.answer("Выберите хотя бы один вариант!", show_alert=True)
                 return
