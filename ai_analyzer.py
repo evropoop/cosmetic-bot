@@ -104,7 +104,9 @@ MATRIX_WASH = """ ⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА
 MATRIX_CARE = """⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА АЛЛЕРГИИ: Если у клиентки есть аллергия на компонент, который физически присутствует в составе (в любой форме — Extract, Oil, Water, Ferment), статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ, ДАЖЕ ЕСЛИ этот компонент входит в список разрешённых активов (Niacinamide, Panthenol, Squalane, пептиды, Ceramide, гиалуроновая кислота и т.д.). Аллергия ВСЕГДА главнее любых одобрений. Если сомневаешься — выбирай 🔴. Никогда не выдавай ответ без эмодзи-статуса. ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДКЕ ПРИОРИТЕТА СВЕРХУ ВНИЗ (ПЕРВОЕ СОВПАДЕНИЕ ОПРЕДЕЛЯЕТ СТАТУС):
 
 1. 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (Высший приоритет)
-- АБСОЛЮТНОЕ ВЕТО: При совпадении тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — кроме безопасного Bakuchiol) или BHA (Salicylic Acid ДО консервантов), или токсичными УФ-фильтрами (Benzophenone-3 / Oxybenzone); ЛИБО при совпадении тега [Аллергия на ...] с компонентом в составе — НЕМЕДЛЕННО выдавай этот статус (никакие модификаторы ниже не могут отменить это вето!). КРИТИЧНО ДЛЯ АЛЛЕРГИЙ: ИИ ОБЯЗАН перевести название аллергена клиента на английский язык и латынь (INCI) и жестко искать любые его производные (Extract, Oil, Water, Ferment). Например: «мята» = Peppermint / Mentha; «ромашка» = Chamomilla; «мед» = Honey / Mel / Propolis / Beeswax. При совпадении — статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
+- АБСОЛЮТНОЕ ВЕТО: При совпадении тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — кроме безопасного Bakuchiol) или BHA (Salicylic Acid ДО консервантов), или токсичными УФ-фильтрами (Benzophenone-3 / Oxybenzone); ЛИБО при совпадении тега [Аллергия на ...] с компонентом в составе — НЕМЕДЛЕННО выдавай этот статус (никакие модификаторы ниже не могут отменить это вето!). КРИТИЧНО ДЛЯ АЛЛЕРГИЙ: ИИ ОБЯЗАН перевести название аллергена клиента на английский язык и латынь (INCI) и жестко искать любые его производные (Extract, Oil, Water, Ferment). Например: мята» = Peppermint / Mentha; «ромашка» = Chamomilla; «мед» = Honey / Mel / Propolis / Beeswax. При совпадении — статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
+
+- КРИТИЧЕСКОЕ ВЕТО ДЛЯ КУПЕРОЗА И РЕАКТИВНОСТИ: Если у клиентки есть тег [Купероз и покраснения] или [Реактивность], и в составе присутствует чистая Ascorbic Acid / L-Ascorbic Acid / Vitamin C (НЕ производные!) ДО консервантов — статус МГНОВЕННО 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. Парковка (🟡) КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНА. Чистая аскорбиновая кислота имеет pH 2.5–3.5 и при реактивной коже или куперозе вызовет химический ожог, усиление сосудистой сетки и стойкую эритему. В ответе ОБЯЗАТЕЛЬНО порекомендуй мягкие стабильные формы витамина С: Sodium Ascorbyl Phosphate (SAP), Magnesium Ascorbyl Phosphate (MAP), 3-O-Ethyl Ascorbic Acid, Ascorbyl Glucoside, Tetrahexyldecyl Ascorbate. Эти формы работают при нейтральном pH и безопасны для купероза. Это правило ПЕРЕОПРЕДЕЛЯЕТ п.3 (где кислота дала бы 🟡).
 
 2. 🟠 ОТКЛОНЯЕМ (Скрытая угроза)
 - ЕСЛИ (Правило Wash-out): в составе заявлены физиологичные липиды (Ceramide, Cholesterol, Phospholipids), но эмульсионная база построена на агрессивных ПЭГ-эмульгаторах в основной части состава ДО консервантов (PEG-100 Stearate, PEG-40 Stearate, Ceteareth-20, Polysorbate-60). ОБЯЗАТЕЛЬНО жестко опиши эффект wash-out: такой эмульгатор встраивается в липидный барьер и при последующем контакте с водой вымоет собственные липиды эпидермиса.
@@ -573,7 +575,44 @@ async def analyze_composition(
             actives_tag = veto_names
             logger.warning(f"🔴 HARD OVERRIDE ({reason}) → forced bad")
     # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
+    
+    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: ЧИСТЫЙ ВИТАМИН С ПРИ КУПЕРОЗЕ/РЕАКТИВНОСТИ ===
+    has_couperose = any(t in tags for t in ["couperose", "reactive"])
+    if has_couperose and category in ["care", "eyes", "wash"] and status not in ["not_composition", "error", "bad"]:
+        safe_lower_c = safe_inci.lower()
+        # Ищем ТОЛЬКО чистые формы (не SAP/MAP/3-O-Ethyl/Ascorbyl Glucoside)
+        pure_vitc_markers = ["ascorbic acid", "l-ascorbic acid", "vitamin c,"]
+        # Исключаем мягкие формы — если они есть, это НЕ чистая аскорбинка
+        soft_vitc_markers = [
+            "sodium ascorbyl phosphate", "magnesium ascorbyl phosphate",
+            "3-o-ethyl ascorbic acid", "ethyl ascorbic acid",
+            "ascorbyl glucoside", "tetrahexyldecyl ascorbate",
+            "ascorbyl palmitate", "ascorbyl tetraisopalmitate",
+            "sodium ascorbate", "magnesium ascorbate",
+        ]
+        has_pure_vitc = any(m in safe_lower_c for m in pure_vitc_markers)
+        has_soft_vitc = any(m in safe_lower_c for m in soft_vitc_markers)
 
+        if has_pure_vitc and not has_soft_vitc:
+            clean_text = (
+                f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе присутствует чистая "
+                f"Ascorbic Acid (аскорбиновая кислота) — при вашем состоянии (купероз/реактивность) "
+                f"это прямая угроза. Чистая аскорбинка работает при pH 2.5–3.5, такой низкий pH "
+                f"вызовет химический ожог, усилит сосудистую сетку и спровоцирует стойкую эритему "
+                f"и раздражение. Парковка здесь не работает: даже после восстановления барьера "
+                f"агрессивный pH останется агрессивным. Замените на мягкие стабильные формы "
+                f"витамина С: Sodium Ascorbyl Phosphate (SAP), Magnesium Ascorbyl Phosphate (MAP), "
+                f"3-O-Ethyl Ascorbic Acid, Ascorbyl Glucoside или Tetrahexyldecyl Ascorbate — "
+                f"они работают при нейтральном pH и безопасны для реактивной кожи и купероза. "
+                f"Вы можете быть спокойны, я помогу подобрать безопасную альтернативу."
+            )
+            status = "bad"
+            status_emoji = "🔴"
+            stage_tag = "Актив или доп. уход"
+            actives_tag = "Ascorbic Acid (чистая форма)"
+            logger.warning(f"🔴 VITAMIN C HARD OVERRIDE: couperose/reactive + Ascorbic Acid → forced bad")
+       # === КОНЕЦ ВИТАМИН С КОНТРОЛЯ ===
+    
        # === ПРИНУДИТЕЛЬНЫЙ ШАБЛОН РЕТИНИЗАЦИИ (глаза, 🟡) ===
     if category == "eyes" and status == "conditional" and found_retinoids:
         retinoid_names = ", ".join(found_retinoids)
