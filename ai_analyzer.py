@@ -152,8 +152,8 @@ LIMITER_BODY = """⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА
 1. ОТМЕНА КОМЕДОГЕННОСТИ БАЗ (Для кремов и лосьонов): Плотные баттеры и окклюзивы — Shea Butter / Butyrospermum Parkii, Cocoa Butter / Theobroma Cacao, Coconut Oil / Cocos Nucifera, Mineral Oil / Paraffinum Liquidum, Petrolatum, Isopropyl Myristate, Isopropyl Palmitate, Myristyl Myristate — для тела ПРИВЕТСТВУЮТСЯ и ВСЕГДА получают 🟢 ОДОБРЯЮ. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО выдавать 🟡, 🟠 или 🔴 из-за «комедогенности» этих компонентов в средствах для ТЕЛА. Индексы комедогенности (от 0 до 5) для тела НЕ ПРИМЕНЯЮТСЯ — кожа тела в 5 раз толще кожи лица, сальные железы работают иначе, поры не забиваются. Даже если у клиентки есть тег [Акне] или [Комедоны] — это про лицо, а не про тело.
 2. АКТИВЫ ДЛЯ ТЕЛА (БЕЗ ПАРКОВКИ): Если видишь Urea (Мочевину), кислоты (Lactic Acid, Salicylic Acid, Glycolic Acid), Caffeine, Centella Asiatica или Niacinamide ДО консервантов (и нет вето по беременности) — выдавай 🟢 ОДОБРЯЮ (не выдавай желтый статус и не паркуй кислоты для тела!). Хвали за работу с рельефом, гиперкератозом или дренажем.
 3. ЕСЛИ ЭТО ГЕЛЬ ДЛЯ ДУША (есть ПАВы): при наличии связки SLS/SLES + Sodium Chloride в начале списка без мягких со-ПАВов и эмолентов — выдавай 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ и пиши: «Этот гель разрушит липидный барьер кожи тела, используйте мягкие ПАВы». Если ПАВы мягкие (или сульфаты смягчены бетаином, глюкозидами и маслами) — выдавай 🟢 ОДОБРЯЮ.
-4. ПУСТЫШКИ (Только для несмываемых кремов/лосьонов): если в креме или лосьоне для тела только вода, глицерин и дешевые силиконы (Dimethicone) без масел и активов до консервантов — выдавай ⚪ ПУСТЫШКА и пиши: «Маркетинговая пустышка. Создаст лишь временную пленку до первого душа»."""
-
+4. ПУСТЫШКИ (Только для несмываемых кремов/лосьонов): если в креме или лосьоне для тела только вода, глицерин и дешевые силиконы (Dimethicone) без масел и активов до консервантов — выдавай ⚪ ПУСТЫШКА и пиши: «Маркетинговая пустышка. Создаст лишь временную пленку до первого душа».
+5. МЕНТОЛ/КАМФОРА/КАПСИКУМ/ЭВКАЛИПТ ПРИ КУПЕРОЗЕ: Если у клиентки есть тег [Купероз и покраснения] и в составе для тела найдены Menthol, Camphor, Capsicum, Eucalyptus — статус 🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ. Похвали средство как уход для тела (лимфодренаж, снятие усталости ног), но ОБЯЗАТЕЛЬНО предупреди: категорически запрещено наносить на лицо, шею и декольте из-за купероза, и обязательно мыть руки после использования."""
 
 PROTOCOL_MODULE = """=========================================
 ДОПОЛНИТЕЛЬНЫЙ МОДУЛЬ «СБОРКА ПРОТОКОЛА»
@@ -497,6 +497,52 @@ async def analyze_composition(
     clean_text = re.sub(r"\n?STAGE_TAG:.*?(\n|$)", "", raw_output).strip()
     clean_text = re.sub(r"\n?ACTIVES_TAG:.*?(\n|$)", "", clean_text).strip()
 
+    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: МЕНТОЛ/КАМФОРА ДЛЯ ТЕЛА ПРИ КУПЕРОЗЕ ===
+    has_couperose_body = "couperose" in tags
+    if category == "body" and has_couperose_body and status not in ["not_composition", "error"]:
+        safe_lower_body_hot = safe_inci.lower()
+        hot_body_ingredients = {
+            "menthol": "Menthol",
+            "camphor": "Camphor",
+            "capsicum": "Capsicum",
+            "eucalyptus": "Eucalyptus",
+            "mentha": "Mentha",
+            "peppermint": "Peppermint",
+        }
+        found_hot_body = [name for key, name in hot_body_ingredients.items() if key in safe_lower_body_hot]
+
+        if found_hot_body:
+            hot_body_names = ", ".join(found_hot_body)
+            warning_block = (
+                f"\n\n⚠️ ВНИМАНИЕ: при вашей склонности к куперозу попадание {hot_body_names} "
+                f"на лицо или шею вызовет ожог и резкое расширение сосудов. "
+                f"Категорически не наносите выше шеи и тщательно мойте руки после использования."
+            )
+            if status == "conditional":
+                if "не наносите выше шеи" not in clean_text.lower() and "мойте руки" not in clean_text.lower():
+                    clean_text = clean_text.rstrip() + warning_block
+                logger.info(f"🟡 HOT BODY WARNING added for {hot_body_names}")
+            elif status == "good":
+                clean_text = clean_text.rstrip() + warning_block
+                status = "conditional"
+                status_emoji = "🟡"
+                stage_tag = "Базовый крем"
+                actives_tag = hot_body_names
+                logger.warning(f"🟡 HOT BODY OVERRIDE (good→conditional): couperose + {hot_body_names}")
+            else:
+                clean_text = (
+                    f"{safe_name}, 🟡 ОСТАВЛЯЕМ С УСЛОВИЕМ. Как уход для тела (снятие усталости ног, "
+                    f"лимфодренажный эффект) — это рабочая база. НО ВНИМАНИЕ: при вашей склонности "
+                    f"к куперозу попадание {hot_body_names} на лицо или шею вызовет ожог и резкое расширение "
+                    f"сосудов. Категорически не наносите выше шеи и тщательно мойте руки после использования."
+                )
+                status = "conditional"
+                status_emoji = "🟡"
+                stage_tag = "Базовый крем"
+                actives_tag = hot_body_names
+                logger.warning(f"🟡 HOT BODY OVERRIDE (full): couperose + {hot_body_names} → conditional")
+       # === КОНЕЦ HOT BODY КОНТРОЛЯ ===
+    
        # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
     found_acids = []
     found_retinoids = []
