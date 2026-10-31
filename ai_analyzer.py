@@ -612,22 +612,28 @@ async def analyze_composition(
         has_strong_alcohol = any(a in head for a in ["alcohol denat", "ethanol,", " isopropyl alcohol"])
 
         force_bad = False
-        reason = ""
+        reasons = []
 
         if found_acids:
             force_bad = True
-            reason = f"eyes + кислоты: {', '.join(found_acids)}"
+            reasons.append(f"кислоты: {', '.join(found_acids)}")
 
-        elif found_retinoids:
+        if found_retinoids:
             if has_risk:
                 force_bad = True
-                reason = f"eyes + ретиноид {', '.join(found_retinoids)} при риск-теге"
+                reasons.append(f"ретиноид {', '.join(found_retinoids)} при риск-теге")
             elif not has_lipids or has_strong_alcohol:
                 force_bad = True
-                reason = f"eyes + ретиноид {', '.join(found_retinoids)} в плохой базе (нет липидов / спирт)"
+                reasons.append(f"ретиноид {', '.join(found_retinoids)} в плохой базе (нет липидов / спирт)")
+
+        if found_irritants:
+            force_bad = True
+            reasons.append(f"раздражители/эфирные масла/спирты: {', '.join(found_irritants)}")
 
         if force_bad:
-            veto_names = ", ".join(found_acids + found_retinoids)
+            all_veto = list(dict.fromkeys(found_acids + found_retinoids + found_irritants))
+            veto_names = ", ".join(all_veto)
+            reason = "eyes + " + "; ".join(reasons)
             clean_text = (
                 f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе для зоны вокруг глаз "
                 f"обнаружены активы, недопустимые для тонкой кожи периорбитальной зоны: {veto_names}. "
