@@ -1663,11 +1663,6 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
             reply_markup=kb
         )
 
-        
-        record_id = None
-        if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
-            record_id = db.save_approved_product(telegram_id, f"[ФОТО] {extracted_text[:100]}...", status, category, stage, actives)
-
         db.save_analysis(telegram_id, f"[ФОТО] {extracted_text[:100]}...", clean_text, status)
 
         if status in ["bad", "hidden_threat"]:
