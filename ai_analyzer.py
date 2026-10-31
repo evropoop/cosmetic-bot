@@ -546,6 +546,7 @@ async def analyze_composition(
        # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ КАТЕГОРИИ "EYES" ===
     found_acids = []
     found_retinoids = []
+    found_irritants = []
     if category == "eyes" and status not in ["not_composition", "error"]:
         safe_lower = safe_inci.lower()
 
@@ -574,6 +575,27 @@ async def analyze_composition(
             "adapalene": "Adapalene",
         }
         found_retinoids = [name for key, name in eyes_retinoid.items() if key in safe_lower]
+
+        # 3) РАЗДРАЖИТЕЛИ / ЭФИРНЫЕ МАСЛА / СПИРТЫ — всегда 🔴 для зоны вокруг глаз
+        eyes_irritant_veto = {
+            "menthol": "Menthol",
+            "camphor": "Camphor",
+            "mentha": "Mentha",
+            "peppermint": "Peppermint",
+            "eucalyptus": "Eucalyptus",
+            "citrus": "Citrus",
+            "limonene": "Limonene",
+            "linalool": "Linalool",
+            "citral": "Citral",
+            "lavandula": "Lavandula",
+            "lavender": "Lavender",
+            "rosmarinus": "Rosmarinus",
+            "rosemary": "Rosemary",
+            "alcohol denat": "Alcohol Denat",
+            "ethanol": "Ethanol",
+            "isopropyl alcohol": "Isopropyl Alcohol",
+        }
+        found_irritants = [name for key, name in eyes_irritant_veto.items() if key in safe_lower]
 
         # Есть ли в базе липиды?
         lipid_markers = ["ceramide", "cholesterol", "squalane", "shea butter", "butyrospermum",
