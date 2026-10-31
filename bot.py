@@ -1611,10 +1611,58 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
             )
             return
 
-        record_id = None
+                record_id = None
         if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
             record_id = db.save_approved_product(telegram_id, f"[ФОТО] {extracted_text[:100]}...", status, category, stage, actives)
-            
+
+        db.save_analysis(telegram_id, f"[ФОТО] {extracted_text[:100]}...", clean_text, status)
+
+        if status in ["bad", "hidden_threat"]:
+            db.increment_bad_bottles(telegram_id)
+        else:
+            db.reset_bad_bottles(telegram_id)
+
+        is_unlimited = (telegram_id in UNLIMITED_IDS)
+        has_sub = db.has_active_subscription(user)
+        is_protocol = user.get("scanner_tariff") == "protocol_2500" and has_sub
+
+        if is_unlimited:
+            await loading_msg.edit_text(clean_text)
+            await callback.message.answer("👑 Режим безлимита: проверок не ограничено.")
+        elif not has_sub:
+            db.increment_free_scans_used(telegram_id)
+            updated_user = db.get_or_create_user(telegram_id)
+            remaining = 2 - updated_user.get("free_scans_used", 0)
+
+            await loading_msg.edit_text(clean_text)
+
+            if remaining == 1:
+                await callback.message.answer(WARMUP_TEXT, reply_markup=get_category_4_keyboard(), parse_mode="HTML")
+                await state.update_data(category=None, photo_urls=[])
+                return
+            elif remaining <= 0:
+                db.schedule_retention_notifications(telegram_id)
+                await send_paywall(callback.message)
+                await state.update_data(category=None, photo_urls=[])
+                return
+        else:
+            await loading_msg.edit_text(clean_text)
+
+        rows = []
+        if is_protocol and record_id:
+            rows.append([InlineKeyboardButton(
+                text="🗑 Я только смотрю в магазине (Не добавлять в мой уход)",
+                callback_data=f"remove_item:{record_id}"
+            )])
+        rows.extend(get_category_4_keyboard().inline_keyboard)
+        kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+        await state.update_data(category=None, photo_urls=[])
+        await callback.message.answer(
+            "Проверим следующее средство? Выберите категорию 👇",
+            reply_markup=kb
+        )
+
 
 @dp.message(StateFilter(Form.waiting_for_composition))
 async def process_composition(message: types.Message, state: FSMContext):
