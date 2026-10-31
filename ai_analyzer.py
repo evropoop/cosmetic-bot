@@ -720,7 +720,14 @@ async def analyze_composition(
     # === КОНЕЦ КОМЕДО-КОНТРОЛЯ ===
 
         # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ ДЛЯ ТЕЛА: НЕ ПУСТЫШКА И НЕ ПАРКОВКА, ЕСЛИ БАЗА ФИЗИОЛОГИЧНА ===
-    if category == "body" and status in ["neutral", "conditional", "hidden_threat"]:
+    _skip_body_override = False
+    if category == "body" and "couperose" in tags:
+        _sl_body = safe_inci.lower()
+        if any(k in _sl_body for k in ["menthol", "camphor", "capsicum", "eucalyptus", "mentha", "peppermint"]):
+            _skip_body_override = True
+            logger.info(f"⏭ BODY OVERRIDE skipped: couperose + hot ingredient")
+
+    if category == "body" and status in ["neutral", "conditional", "hidden_threat"] and not _skip_body_override:
         safe_lower_body = safe_inci.lower()
 
         # 1) Плохие для тела компоненты (жёсткие сульфаты, спирт в начале, токсичный УФ-фильтр)
