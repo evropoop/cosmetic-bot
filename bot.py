@@ -965,9 +965,10 @@ def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> s
 
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
-    link = generate_prodamus_link(callback.from_user.id, 1000, "audit_1000")
+    # ВРЕМЕННО ДЛЯ ТЕСТА: 1 рубль
+    link = generate_prodamus_link(callback.from_user.id, 1, "audit_1000") 
     await callback.message.answer(
-        "Для оплаты тарифа «Аудит» (1000 ₽) нажмите кнопку ниже:",
+        "Для оплаты тарифа «Аудит» (ТЕСТ 1 ₽) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
         ])
@@ -976,9 +977,10 @@ async def pay_audit_30(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "pay_restore_90")
 async def pay_restore_90(callback: types.CallbackQuery):
-    link = generate_prodamus_link(callback.from_user.id, 2500, "protocol_2500")
+    # ВРЕМЕННО ДЛЯ ТЕСТА: 1 рубль
+    link = generate_prodamus_link(callback.from_user.id, 1, "protocol_2500")
     await callback.message.answer(
-        "Для оплаты тарифа «Сборка протокола» (2500 ₽) нажмите кнопку ниже:",
+        "Для оплаты тарифа «Сборка протокола» (ТЕСТ 1 ₽) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
         ])
