@@ -940,7 +940,7 @@ def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> s
     
     # 1. Собираем данные как вложенный словарь (как в PHP примере)
     data = {
-        "do": "link",
+        "do": "pay",
         "sys": PRODAMUS_SYS,
         "order_id": order_id,
         "products": [
