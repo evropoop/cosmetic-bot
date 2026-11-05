@@ -10,6 +10,7 @@ import re
 import base64
 from datetime import datetime, timedelta
 
+from prodamus_hmac import HmacHelper, flatten_form, parse_bracket_form
 from aiogram import Bot, Dispatcher, F, types, BaseMiddleware
 from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -936,23 +937,30 @@ async def pay_pdf_4900(callback: types.CallbackQuery, state: FSMContext):
 
 def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> str:
     order_id = f"user_{telegram_id}_{tariff_type}_{int(datetime.now().timestamp())}"
-    params = {
+    
+    # 1. Собираем данные как вложенный словарь (как в PHP примере)
+    data = {
         "do": "link",
         "sys": PRODAMUS_SYS,
         "order_id": order_id,
-        "products[0][name]": f"Доступ к алгоритму ({tariff_type})",
-        "products[0][price]": str(amount),
-        "products[0][quantity]": "1",
+        "products": [
+            {
+                "name": f"Доступ к алгоритму ({tariff_type})",
+                "price": str(amount),
+                "quantity": "1"
+            }
+        ]
     }
-    sorted_items = sorted(params.items())
-    query_string = urllib.parse.urlencode(sorted_items)
-    signature = hmac.new(
-        PRODAMUS_SECRET.encode('utf-8'),
-        query_string.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    params["signature"] = signature
-    return f"{PRODAMUS_URL}?{urllib.parse.urlencode(params)}"
+
+    # 2. Генерируем подпись через официальную библиотеку Prodamus
+    signature = HmacHelper.create(data, PRODAMUS_SECRET)
+    data["signature"] = signature
+
+    # 3. Разворачиваем вложенный словарь в плоские параметры (products[0][name] и т.д.)
+    flat_params = flatten_form(data)
+
+    # 4. Формируем URL
+    return f"{PRODAMUS_URL}?{urllib.parse.urlencode(flat_params)}"
 
 
 @dp.callback_query(F.data == "pay_audit_30")
@@ -2205,46 +2213,35 @@ async def debug_unhandled_callbacks(callback: types.CallbackQuery):
 
 async def prodamus_webhook(request: web.Request):
     try:
-        data = dict(await request.post())
-        received_sign = data.pop('Sign', None) or request.headers.get('Sign')
+        # Получаем плоские данные из POST-запроса
+        post_data = dict(await request.post())
+        received_sign = post_data.pop("signature", None) or request.headers.get("Sign")
         
         if not received_sign:
             return web.Response(status=403, text="No signature")
 
-        # Проверяем подпись (что запрос реально от Prodamus)
-        sorted_items = sorted(data.items())
-        query_string = urllib.parse.urlencode(sorted_items)
-        expected_sign = hmac.new(
-            PRODAMUS_SECRET.encode('utf-8'),
-            query_string.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
+        # Восстанавливаем вложенную структуру для проверки подписи
+        nested_data = parse_bracket_form(post_data)
 
-        if not hmac.compare_digest(expected_sign.lower(), received_sign.lower()):
-            logger.warning("Prodamus: неверная подпись (Sign mismatch)")
+        # Проверяем подпись через официальную библиотеку
+        if not HmacHelper.verify(nested_data, PRODAMUS_SECRET, received_sign):
+            logger.warning("Prodamus: неверная подпись")
             return web.Response(status=403, text="Invalid signature")
 
-        # Если оплата прошла успешно
-        if data.get("payment_status") == "success":
-            order_id = data.get("order_id")
-            
-            # Проверяем, не обработан ли этот платеж уже
+        # Если оплата успешна (ключ может быть payment_status или status - обычно payment_status)
+        if post_data.get("payment_status") == "success":
+            order_id = post_data.get("order_id")
             if not db.check_payment_exists(order_id):
                 parts = order_id.split("_")
                 telegram_id = int(parts[1])
                 tariff_type = parts[2]
-                amount = int(float(data.get("sum", 0))) 
+                amount = int(float(post_data.get("sum", 0))) 
                 
-                # Сохраняем платеж и выдаем подписку
                 db.save_payment(order_id, telegram_id, amount, tariff_type)
                 db.update_user_subscription(telegram_id, tariff_type, 30)
                 
-                # Пишем клиенту, что всё ок
                 try:
-                    await bot.send_message(
-                        telegram_id, 
-                        "🎉 Оплата успешно получена! Доступ активирован на 30 дней."
-                    )
+                    await bot.send_message(telegram_id, "🎉 Оплата успешно получена! Доступ активирован на 30 дней.")
                 except Exception:
                     pass
                 
