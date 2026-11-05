@@ -1,8 +1,9 @@
 import sqlite3
+import os
 from datetime import datetime, timedelta
 import json
 
-DB_NAME = "cosmetic_bot.db"
+DB_NAME = os.path.join(os.getenv("DATA_DIR", "."), "cosmetic_bot.db")
 
 
 def get_connection():
