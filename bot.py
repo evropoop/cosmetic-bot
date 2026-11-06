@@ -766,27 +766,21 @@ async def cmd_tariffs(message: types.Message):
 async def handle_payment_return(message: types.Message):
     order_id = message.text.replace("/start pay_success_", "").strip()
     
-    # Защита от повторного начисления
     if db.check_payment_exists(order_id):
         await message.answer("✅ Ваш доступ уже активирован ранее.")
         return
 
     try:
-        # Разбираем order_id (формат: user_123456789_audit_1000_123456)
-        parts = order_id.split("_")
+        # МЕНЯЕМ РАЗБОР НА ДЕФИСЫ:
+        parts = order_id.split("-")
         telegram_id = int(parts[1])
-        tariff_type = parts[2]
+        tariff_type = parts[2]  # Теперь тут будет 'audit_1000'
         
-        # Сохраняем платеж (сумму ставим тестовую 1, так как вебхука нет)
+        # Сохраняем платеж и выдаем подписку
         db.save_payment(order_id, telegram_id, 1, tariff_type)
-        
-        # Выдаем подписку на 30 дней
         db.update_user_subscription(telegram_id, tariff_type, 30)
         
-        # Отправляем сообщение
         await message.answer("🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\nПроверьте свой профиль командой /profile.")
-        
-        # Убираем retention-пуши, так как клиент оплатил
         db.cancel_retention_notifications(telegram_id)
         
     except Exception as e:
@@ -968,9 +962,8 @@ async def pay_pdf_4900(callback: types.CallbackQuery, state: FSMContext):
 
 
 async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> str:
-    order_id = f"user_{telegram_id}_{tariff_type}_{int(datetime.now().timestamp())}"
+    order_id = f"user-{telegram_id}-{tariff_type}-{int(datetime.now().timestamp())}"
     
-    # Ссылка, куда Prodamus вернет клиента после оплаты
     bot_info = await bot.get_me()
     success_url = f"https://t.me/{bot_info.username}?start=pay_success_{order_id}"
 
@@ -993,6 +986,7 @@ async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str
     data["signature"] = signature
     flat_params = flatten_form(data)
     return f"{PRODAMUS_URL}?{urllib.parse.urlencode(flat_params)}"
+
 
 
 @dp.callback_query(F.data == "pay_audit_30")
