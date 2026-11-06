@@ -204,7 +204,16 @@ def get_path_keyboard():
         [InlineKeyboardButton(text="🛒 Собрать уход с Романом", callback_data="go_scanner")],
         [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
         [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
+        [InlineKeyboardButton(text="💳 Посмотреть тарифы", callback_data="show_tariffs")] # <--- ДОБАВИЛИ
     ])
+
+
+@dp.callback_query(F.data == "show_tariffs")
+async def show_tariffs_cb(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    # Вызываем ту самую функцию, которая отправляет текст тарифов
+    await cmd_tariffs(callback.message)
+    await callback.answer()
 
 
 def get_mariya_payment_keyboard(user_name: str, user_id: int):
@@ -1160,7 +1169,12 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
             await state.update_data(survey_step=6)
             await state.set_state(Form.waiting_for_allergy)
             await callback.message.delete()
-            await callback.message.answer("Напишите название компонента, на который у вас аллергия:")
+            await callback.message.answer(
+                "Напишите название компонента, на который у вас аллергия:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="◀️ Назад", callback_data="back_5")]
+                ])
+            )
             await callback.answer()
             return
 
