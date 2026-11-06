@@ -957,24 +957,24 @@ async def analyze_composition(
             logger.warning(f"🟢 BODY OVERRIDE: {status_emoji_original if 'status_emoji_original' in dir() else 'neutral/conditional'} → forced good")
     # === КОНЕЦ BODY-КОНТРОЛЯ ===
     
-    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: АЛЛЕРГИЯ (все категории) ===
-    if allergies and status != "not_composition":
-        safe_lower_all = safe_inci.lower()
+        # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: АЛЛЕРГИЯ (все категории) ===
+    _ai_mentioned_allergy = any(
+        a.lower().strip() in raw_output.lower() or "аллерг" in raw_output.lower()
+        for a in allergies if a
+    ) if allergies else False
+
+    if allergies and status not in ["not_composition", "error"] and not _ai_mentioned_allergy:
         found_allergens = []
+        exact_inci_matches = []
         for allergen in allergies:
             al_lower = allergen.lower().strip()
             if not al_lower:
                 continue
-            # Простое вхождение
-            if al_lower in safe_lower_all:
-                found_allergens.append(allergen)
-                continue
-            # Латинские синонимы для частых аллергенов
             synonyms_map = {
                 "мята": ["mentha", "peppermint"],
                 "ромашка": ["chamomilla", "chamomile"],
-                "мед": ["honey", "mel ", "propolis", "beeswax", "cera alba", "royal jelly"],
-                "мёд": ["honey", "mel ", "propolis", "beeswax", "cera alba", "royal jelly"],
+                "мед": ["honey", "mel ", "propolis", "beeswax", "cera alba"],
+                "мёд": ["honey", "mel ", "propolis", "beeswax", "cera alba"],
                 "лаванда": ["lavandula", "lavender"],
                 "цитрус": ["citrus", "limonene", "linalool", "citral"],
                 "лимон": ["citrus limon", "lemon", "limonene"],
@@ -983,32 +983,43 @@ async def analyze_composition(
                 "латекс": ["latex", "hevea"],
                 "прополис": ["propolis"],
                 "пчелиный воск": ["beeswax", "cera alba"],
-                "роза": ["rosa", "rose"],
-                "розы": ["rosa", "rose"],
-                "ромашка": ["chamomilla", "chamomile"],
-                "эфирные масла": ["oil", "essential"],
+                "роза": ["rosa", "rose", "citronellol"],
+                "розы": ["rosa", "rose", "citronellol"],
             }
-            for syn in synonyms_map.get(al_lower, []):
-                if syn in safe_lower_all:
-                    found_allergens.append(f"{allergen} (как {syn.strip()})")
-                    break
-
+            
+            syns = synonyms_map.get(al_lower, [])
+            components = [c.strip() for c in safe_inci.split(",")]
+            
+            for comp in components:
+                comp_lower = comp.lower()
+                if al_lower in comp_lower or any(syn in comp_lower for syn in syns):
+                    exact_inci_matches.append(comp)
+                    found_allergens.append(allergen)
+                    
         if found_allergens:
-            allergen_names = ", ".join(found_allergens)
+            unique_found = list(dict.fromkeys(found_allergens))
+            unique_inci = list(dict.fromkeys(exact_inci_matches))
+            
+            if unique_inci:
+                allergen_names = f"{', '.join(unique_found)} (скрыта как {', '.join(unique_inci)})"
+            else:
+                allergen_names = ", ".join(unique_found)
+                
             clean_text = (
                 f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. В составе обнаружен ваш аллерген: "
                 f"{allergen_names}. По правилу абсолютного приоритета аллергии этот продукт "
-                f"автоматически блокируется — даже если компонент обычно считается безопасным "
+                f"автоматически блокируется - даже если компонент обычно считается безопасным "
                 f"(Niacinamide, Panthenol, растительный экстракт и т.д.). Наносить нельзя: риск "
                 f"аллергической реакции, контактного дерматита и отёка. Замените на средство без "
-                f"этого компонента — вы можете быть спокойны, я помогу подобрать безопасную альтернативу."
+                f"этого компонента - вы можете быть спокойны, я помогу подобрать безопасную альтернативу."
             )
             status = "bad"
             status_emoji = "🔴"
             stage_tag = "Актив или доп. уход"
-            actives_tag = allergen_names
+            actives_tag = ", ".join(unique_inci) if unique_inci else ", ".join(unique_found)
             logger.warning(f"🔴 ALLERGY HARD OVERRIDE: {allergen_names} → forced bad")
     # === КОНЕЦ АЛЛЕРГИЯ-КОНТРОЛЯ ===
+
     
 
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: БЕЗОПАСНАЯ БАЗА (если ИИ сломался) ===
