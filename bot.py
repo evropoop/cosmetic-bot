@@ -39,14 +39,14 @@ PRODAMUS_URL = os.getenv("PRODAMUS_URL")
 PRODAMUS_SECRET = os.getenv("PRODAMUS_SECRET")
 PRODAMUS_SYS = os.getenv("PRODAMUS_SYS")
 
-UNLIMITED_IDS = [MARIYA_ID, OWNER_ID, 5858622813, 1962088357]
+UNLIMITED_IDS = [MARIYA_ID, OWNER_ID]
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
 OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
 CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
 
-MARIYA_USERNAME = "miroslavskaya_boks"
+MARIYA_USERNAME = "miroslavskayaboks"
 
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
@@ -1154,6 +1154,7 @@ async def process_back(callback: types.CallbackQuery, state: FSMContext):
     step_contrib.pop(str(step), None)
 
     await state.update_data(survey_step=new_step, tags=tags, step_contrib=step_contrib)
+    await state.set_state(Form.survey)
     await callback.message.delete()
     await send_question(callback.message, state)
     await callback.answer()
@@ -1208,7 +1209,7 @@ async def process_answer(callback: types.CallbackQuery, state: FSMContext):
             await callback.message.answer(
                 "Напишите название компонента, на который у вас аллергия:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="◀️ Назад", callback_data="back_5")]
+                    [InlineKeyboardButton(text="◀️ Назад", callback_data="back_6")]
                 ])
             )
             await callback.answer()
