@@ -46,7 +46,7 @@ CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2I
 OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
 CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
 
-MARIYA_USERNAME = "miroslavskayaboks"
+MARIYA_USERNAME = "miroslavskaya_boks"
 
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден в .env!")
@@ -948,9 +948,16 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
 
 
 @dp.callback_query(F.data == "pay_pdf_4900")
-async def pay_pdf_4900(callback: types.CallbackQuery, state: FSMContext):
-    telegram_id = callback.from_user.id
-    user_name = db.get_user_name(telegram_id) or "Клиент"
+async def pay_pdf_4900(callback: types.CallbackQuery):
+    # Генерируем ссылку на Prodamus для 4900 рублей
+    link = await generate_prodamus_link(callback.from_user.id, 4900, "pdf_4900")
+    await callback.message.answer(
+        "Для оплаты Персонального PDF-протокола (4 900 ₽) нажмите кнопку ниже:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
+        ])
+    )
+    await callback.answer()
 
     db.cancel_retention_notifications(telegram_id)
     db.set_maria_order_status(telegram_id, "completed_vip")
@@ -1103,7 +1110,7 @@ async def send_question(message: types.Message, state: FSMContext):
     )
 
 
-@dp.callback_query(StateFilter(Form.survey), F.data.regexp(r"^back_\d+$"))
+@dp.callback_query(StateFilter(Form.survey, Form.waiting_for_allergy), F.data.regexp(r"^back_\d+$"))
 async def process_back(callback: types.CallbackQuery, state: FSMContext):
     step = int(callback.data.split("_")[1])
     new_step = step - 1
