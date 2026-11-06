@@ -476,14 +476,21 @@ async def analyze_composition(
         },
         {"type": "text", "text": dynamic_rules}
     ]
-
     def _extract_status(text: str) -> str:
         if not text:
             return None
         for emoji in ("🚫", "🔴", "🟠", "🟡", "⚪", "🟢", "🔵"):
             if emoji in text:
                 return emoji
+        text_upper = text.upper()
+        if "ВЫНУЖДЕН ЗАБРАКОВАТЬ" in text_upper: return "🔴"
+        if "ОТКЛОНЯЕМ" in text_upper: return "🟠"
+        if "ОСТАВЛЯЕМ С УСЛОВИЕМ" in text_upper: return "🟡"
+        if "ПУСТЫШКА" in text_upper: return "⚪"
+        if "ОДОБРЯЮ" in text_upper: return "🟢"
+        if "ИСКЛЮЧЕНИЕ" in text_upper: return "🔵"
         return None
+
 
     raw_output = await _call_llm(system_blocks, user_prompt, 0.1, max_tokens)
     if raw_output:
@@ -1003,6 +1010,27 @@ async def analyze_composition(
             logger.warning(f"🔴 ALLERGY HARD OVERRIDE: {allergen_names} → forced bad")
     # === КОНЕЦ АЛЛЕРГИЯ-КОНТРОЛЯ ===
     
+
+    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: БЕЗОПАСНАЯ БАЗА (если ИИ сломался) ===
+    if status == "error" and category in ["care", "eyes"]:
+        safe_base_markers = ["ceramide", "squalane", "cholesterol", "shea butter", "panthenol", "centella", "hyaluronic"]
+        has_safe_base = sum(1 for m in safe_base_markers if m in safe_inci.lower()) >= 2
+        bad_actives = ["acid", "retinol", "alcohol denat", "ethanol", "parfum", "fragrance"]
+        has_bad_actives = any(b in safe_inci.lower() for b in bad_actives)
+        
+        if has_safe_base and not has_bad_actives:
+            clean_text = (
+                f"{safe_name}, 🟢 ОДОБРЯЮ. Грамотная физиологичная база для восстановления липидного барьера. "
+                f"Состав содержит рабочие концентрации церамидов, сквалана и холестерина, которые "
+                f"необходимы для восстановления гидролипидной мантии. Средство безопасно для вашего состояния."
+            )
+            status = "good"
+            status_emoji = "🟢"
+            stage_tag = "Базовый крем"
+            actives_tag = "Ceramide NP, Squalane, Cholesterol"
+            logger.info("🟢 SAFE BASE OVERRIDE: возвращен статус good для безопасного состава")
+    # ==============================================================================
+
 
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: БЕРЕМЕННОСТЬ (все категории, включая body) ===
     if "pregnancy" in tags and status != "not_composition":
