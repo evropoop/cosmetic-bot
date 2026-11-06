@@ -979,7 +979,7 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "pay_pdf_4900")
 async def pay_pdf_4900(callback: types.CallbackQuery):
     # Генерируем ссылку на Prodamus для 4900 рублей
-    link = await generate_prodamus_link(callback.from_user.id, 4900, "pdf_4900")
+    link = await generate_prodamus_link(callback.from_user.id, 1, "pdf_4900")
     await callback.message.answer(
         "Для оплаты Персонального PDF-протокола (4 900 ₽) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
