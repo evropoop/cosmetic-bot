@@ -781,16 +781,45 @@ async def handle_payment_return(message: types.Message):
 
     try:
         # МЕНЯЕМ РАЗБОР НА ДЕФИСЫ:
+                # Разбираем order_id (формат: user-123456789-pdf_4900-123456)
         parts = order_id.split("-")
         telegram_id = int(parts[1])
-        tariff_type = parts[2]  # Теперь тут будет 'audit_1000'
+        tariff_type = parts[2]
         
-        # Сохраняем платеж и выдаем подписку
-        db.save_payment(order_id, telegram_id, 1, tariff_type)
-        db.update_user_subscription(telegram_id, tariff_type, 30)
+        # Сохраняем платеж (сумму можно взять из order_id или поставить 1 для теста)
+        db.save_payment(order_id, telegram_id, 4900 if tariff_type == "pdf_4900" else 1, tariff_type)
         
-        await message.answer("🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\nПроверьте свой профиль командой /profile.")
-        db.cancel_retention_notifications(telegram_id)
+        if tariff_type == "pdf_4900":
+            # ЭТО РАЗОВАЯ ПОКУПКА PDF-ПРОТОКОЛА
+            db.cancel_retention_notifications(telegram_id)
+            db.set_maria_order_status(telegram_id, "completed_vip")
+            
+            # Отправляем клиенту ссылку на Марию
+            await message.answer(
+                "🎉 Оплата PDF-протокола (4 900 ₽) успешно получена!\n\n"
+                "Мария уже получила данные вашей диагностики. Нажмите на кнопку ниже, "
+                "чтобы перейти в личный диалог и согласовать комфортный бюджет на покупку средств 👇",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+                ])
+            )
+            # Уведомляем админа
+            try:
+                user_name = db.get_user_name(telegram_id) or "Клиент"
+                await bot.send_message(
+                    ADMIN_ID, 
+                    f"🎉 ОПЛАЧЕН PDF-ПРОТОКОЛ (4 900 ₽)\nКлиент: {user_name}\nID: {telegram_id}"
+                )
+            except Exception:
+                pass
+        else:
+            # ЭТО ПОДПИСКА (Аудит или Сборка протокола)
+            db.update_user_subscription(telegram_id, tariff_type, 30)
+            await message.answer(
+                "🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\n"
+                "Проверьте свой профиль командой /profile."
+            )
+            db.cancel_retention_notifications(telegram_id)
         
     except Exception as e:
         logger.error(f"Ошибка при возврате с оплаты: {e}")
