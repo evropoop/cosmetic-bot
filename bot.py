@@ -762,6 +762,38 @@ async def cmd_tariffs(message: types.Message):
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
+@dp.message(F.text.startswith("/start pay_success_"))
+async def handle_payment_return(message: types.Message):
+    order_id = message.text.replace("/start pay_success_", "").strip()
+    
+    # Защита от повторного начисления
+    if db.check_payment_exists(order_id):
+        await message.answer("✅ Ваш доступ уже активирован ранее.")
+        return
+
+    try:
+        # Разбираем order_id (формат: user_123456789_audit_1000_123456)
+        parts = order_id.split("_")
+        telegram_id = int(parts[1])
+        tariff_type = parts[2]
+        
+        # Сохраняем платеж (сумму ставим тестовую 1, так как вебхука нет)
+        db.save_payment(order_id, telegram_id, 1, tariff_type)
+        
+        # Выдаем подписку на 30 дней
+        db.update_user_subscription(telegram_id, tariff_type, 30)
+        
+        # Отправляем сообщение
+        await message.answer("🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\nПроверьте свой профиль командой /profile.")
+        
+        # Убираем retention-пуши, так как клиент оплатил
+        db.cancel_retention_notifications(telegram_id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при возврате с оплаты: {e}")
+        await message.answer("⚠️ Ошибка активации доступа. Пожалуйста, свяжитесь с поддержкой.")
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     telegram_id = message.from_user.id
@@ -935,14 +967,19 @@ async def pay_pdf_4900(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> str:
+async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> str:
     order_id = f"user_{telegram_id}_{tariff_type}_{int(datetime.now().timestamp())}"
     
-    # 1. Собираем данные как вложенный словарь (как в PHP примере)
+    # Ссылка, куда Prodamus вернет клиента после оплаты
+    bot_info = await bot.get_me()
+    success_url = f"https://t.me/{bot_info.username}?start=pay_success_{order_id}"
+
     data = {
-        "do": "pay",
+        "do": "link",
         "sys": PRODAMUS_SYS,
         "order_id": order_id,
+        "urlSuccess": success_url,
+        "urlReturn": f"https://t.me/{bot_info.username}",
         "products": [
             {
                 "name": f"Доступ к алгоритму ({tariff_type})",
@@ -952,21 +989,16 @@ def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> s
         ]
     }
 
-    # 2. Генерируем подпись через официальную библиотеку Prodamus
     signature = HmacHelper.create(data, PRODAMUS_SECRET)
     data["signature"] = signature
-
-    # 3. Разворачиваем вложенный словарь в плоские параметры (products[0][name] и т.д.)
     flat_params = flatten_form(data)
-
-    # 4. Формируем URL
     return f"{PRODAMUS_URL}?{urllib.parse.urlencode(flat_params)}"
 
 
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
     # ВРЕМЕННО ДЛЯ ТЕСТА: 1 рубль
-    link = generate_prodamus_link(callback.from_user.id, 1, "audit_1000") 
+    link = await generate_prodamus_link(callback.from_user.id, 1, "audit_1000") 
     await callback.message.answer(
         "Для оплаты тарифа «Аудит» (ТЕСТ 1 ₽) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -978,7 +1010,7 @@ async def pay_audit_30(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "pay_restore_90")
 async def pay_restore_90(callback: types.CallbackQuery):
     # ВРЕМЕННО ДЛЯ ТЕСТА: 1 рубль
-    link = generate_prodamus_link(callback.from_user.id, 1, "protocol_2500")
+    link = await generate_prodamus_link(callback.from_user.id, 1, "protocol_2500")
     await callback.message.answer(
         "Для оплаты тарифа «Сборка протокола» (ТЕСТ 1 ₽) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -2252,7 +2284,6 @@ async def prodamus_webhook(request: web.Request):
         logger.error(f"Prodamus webhook error: {e}")
         return web.Response(status=500, text="Error")
 
-
 async def main():
     asyncio.create_task(retention_worker())
 
@@ -2293,3 +2324,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("⛔ Бот остановлен")
+
+
+
