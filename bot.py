@@ -975,7 +975,7 @@ async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str
     success_url = f"https://t.me/{bot_info.username}?start=pay_success_{order_id}"
 
     data = {
-        "do": "link",
+        "do": "pay",
         "sys": PRODAMUS_SYS,
         "order_id": order_id,
         "urlSuccess": success_url,
