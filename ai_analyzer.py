@@ -1024,7 +1024,9 @@ async def analyze_composition(
 
 
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: БЕРЕМЕННОСТЬ (все категории, включая body) ===
-    if "pregnancy" in tags and status != "not_composition":
+    # Проверяем, выявил ли уже ИИ аллерген в своём ответе
+    _ai_mentioned_allergy = ("аллерген" in raw_output.lower() or "аллергия" in raw_output.lower()) or any(a.lower().strip() in raw_output.lower() for a in allergies if a and a.lower().strip())
+    if "pregnancy" in tags and status != "not_composition" and not _ai_mentioned_allergy:
         safe_lower_preg = safe_inci.lower()
 
         # 1) Ретиноиды в любой форме
