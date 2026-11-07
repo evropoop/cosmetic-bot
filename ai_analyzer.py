@@ -729,6 +729,78 @@ async def analyze_composition(
             logger.warning(f"🔴 HARD OVERRIDE ({reason}) → forced bad")
     # === КОНЕЦ ЖЁСТКОГО КОНТРОЛЯ ===
     
+    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: БЕРЕМЕННОСТЬ (все категории, включая body) ===
+    # Проверяем, выявил ли уже ИИ аллерген в своём ответе
+    _ai_mentioned_allergy = ("аллерген" in raw_output.lower() or "аллергия" in raw_output.lower()) or any(a.lower().strip() in raw_output.lower() for a in allergies if a and a.lower().strip())
+    if "pregnancy" in tags and status != "not_composition":
+        safe_lower_preg = safe_inci.lower()
+
+        # 1) Ретиноиды в любой форме
+        preg_retinoids = {
+            "retinol": "Retinol",
+            "retinal": "Retinal",
+            "retinyl palmitate": "Retinyl Palmitate",
+            "retinyl acetate": "Retinyl Acetate",
+            "retinyl retinoate": "Retinyl Retinoate",
+            "hydroxypinacolone retinoate": "Hydroxypinacolone Retinoate",
+            "adapalene": "Adapalene",
+        }
+        found_retin = [n for k, n in preg_retinoids.items() if _has_ingredient(safe_lower_preg, k)]
+
+        # 2) BHA (Salicylic Acid) до консервантов
+        found_bha = []
+        if _has_ingredient(safe_lower_preg, "salicylic acid"):
+            _cons_idx = min(
+                [safe_lower_preg.find(c) for c in ["phenoxyethanol", "ethylhexylglycerin", "sodium benzoate", "potassium sorbate"] if safe_lower_preg.find(c) > 0] or [len(safe_lower_preg)]
+            )
+            _sal_idx = safe_lower_preg.find("salicylic acid")
+            if 0 <= _sal_idx < _cons_idx:
+                found_bha.append("Salicylic Acid")
+
+        # 3) Арбутин / гидрохинон
+        preg_arbutin = {
+            "alpha-arbutin": "Alpha-Arbutin",
+            "arbutin": "Arbutin",
+            "hydroquinone": "Hydroquinone",
+        }
+        found_arb = [n for k, n in preg_arbutin.items() if _has_ingredient(safe_lower_preg, k)]
+
+        # 4) Токсичные УФ-фильтры
+        found_uv = []
+        if _has_ingredient(safe_lower_preg, "benzophenone-3") or _has_ingredient(safe_lower_preg, "oxybenzone"):
+            found_uv.append("Benzophenone-3 / Oxybenzone")
+
+        preg_veto_all = found_retin + found_bha + found_arb + found_uv
+        if preg_veto_all:
+            preg_names = ", ".join(dict.fromkeys(preg_veto_all))
+            clean_text = (
+                f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. При беременности и лактации в составе "
+                f"обнаружены компоненты, абсолютно противопоказанные: {preg_names}. "
+            )
+            if found_retin:
+                clean_text += f"Ретиноиды — тератогены, могут вызвать пороки развития плода. "
+            if found_bha:
+                clean_text += f"Салициловая кислота в рабочей концентрации проникает в системный кровоток. "
+            if found_arb:
+                clean_text += f"Арбутин распадается до гидрохинона — токсичен для плода. "
+            if found_uv:
+                clean_text += f"Оксибензон — эндокринный дисраптор, накапливается в организме. "
+            clean_text += (
+                f"Это правило НЕ отменяется категорией средства — даже если оно «для тела», "
+                f"«смывается» или «наносится на живот». Наносить нельзя. "
+                f"Замените на безопасные альтернативы: стабильные формы витамина С (SAP, MAP, "
+                f"3-O-Ethyl Ascorbic Acid), ниацинамид, азелаиновая кислота (до 10%), "
+                f"гиалуроновая кислота, пантенол. Вы можете быть спокойны, я помогу подобрать "
+                f"безопасный уход для этого периода."
+            )
+            status = "bad"
+            status_emoji = "🔴"
+            stage_tag = "Актив или доп. уход"
+            actives_tag = preg_names
+            logger.warning(f"🔴 PREGNANCY HARD OVERRIDE: {preg_names} → forced bad (category={category!r})")
+    # === КОНЕЦ PREGNANCY-КОНТРОЛЯ ===
+
+
     # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: МЯТА/МЕНТОЛ/СПИРТ ПРИ КУПЕРОЗЕ (любая категория лица) ===
     has_couperose_any = any(t in tags for t in ["couperose", "reactive"])
     if has_couperose_any and category != "body" and status != "not_composition":
@@ -983,8 +1055,8 @@ async def analyze_composition(
                 "латекс": ["latex", "hevea"],
                 "прополис": ["propolis"],
                 "пчелиный воск": ["beeswax", "cera alba"],
-                "роза": ["rosa", "rose", "citronellol"],
-                "розы": ["rosa", "rose", "citronellol"],
+                "роза": ["rosa", "rose"],
+                "розы": ["rosa", "rose"],
             }
             
             syns = synonyms_map.get(al_lower, [])
@@ -1043,76 +1115,6 @@ async def analyze_composition(
     # ==============================================================================
 
 
-    # === ЖЁСТКИЙ PYTHON-КОНТРОЛЬ: БЕРЕМЕННОСТЬ (все категории, включая body) ===
-    # Проверяем, выявил ли уже ИИ аллерген в своём ответе
-    _ai_mentioned_allergy = ("аллерген" in raw_output.lower() or "аллергия" in raw_output.lower()) or any(a.lower().strip() in raw_output.lower() for a in allergies if a and a.lower().strip())
-    if "pregnancy" in tags and status != "not_composition":
-        safe_lower_preg = safe_inci.lower()
-
-        # 1) Ретиноиды в любой форме
-        preg_retinoids = {
-            "retinol": "Retinol",
-            "retinal": "Retinal",
-            "retinyl palmitate": "Retinyl Palmitate",
-            "retinyl acetate": "Retinyl Acetate",
-            "retinyl retinoate": "Retinyl Retinoate",
-            "hydroxypinacolone retinoate": "Hydroxypinacolone Retinoate",
-            "adapalene": "Adapalene",
-        }
-        found_retin = [n for k, n in preg_retinoids.items() if _has_ingredient(safe_lower_preg, k)]
-
-        # 2) BHA (Salicylic Acid) до консервантов
-        found_bha = []
-        if _has_ingredient(safe_lower_preg, "salicylic acid"):
-            _cons_idx = min(
-                [safe_lower_preg.find(c) for c in ["phenoxyethanol", "ethylhexylglycerin", "sodium benzoate", "potassium sorbate"] if safe_lower_preg.find(c) > 0] or [len(safe_lower_preg)]
-            )
-            _sal_idx = safe_lower_preg.find("salicylic acid")
-            if 0 <= _sal_idx < _cons_idx:
-                found_bha.append("Salicylic Acid")
-
-        # 3) Арбутин / гидрохинон
-        preg_arbutin = {
-            "alpha-arbutin": "Alpha-Arbutin",
-            "arbutin": "Arbutin",
-            "hydroquinone": "Hydroquinone",
-        }
-        found_arb = [n for k, n in preg_arbutin.items() if _has_ingredient(safe_lower_preg, k)]
-
-        # 4) Токсичные УФ-фильтры
-        found_uv = []
-        if _has_ingredient(safe_lower_preg, "benzophenone-3") or _has_ingredient(safe_lower_preg, "oxybenzone"):
-            found_uv.append("Benzophenone-3 / Oxybenzone")
-
-        preg_veto_all = found_retin + found_bha + found_arb + found_uv
-        if preg_veto_all:
-            preg_names = ", ".join(dict.fromkeys(preg_veto_all))
-            clean_text = (
-                f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. При беременности и лактации в составе "
-                f"обнаружены компоненты, абсолютно противопоказанные: {preg_names}. "
-            )
-            if found_retin:
-                clean_text += f"Ретиноиды — тератогены, могут вызвать пороки развития плода. "
-            if found_bha:
-                clean_text += f"Салициловая кислота в рабочей концентрации проникает в системный кровоток. "
-            if found_arb:
-                clean_text += f"Арбутин распадается до гидрохинона — токсичен для плода. "
-            if found_uv:
-                clean_text += f"Оксибензон — эндокринный дисраптор, накапливается в организме. "
-            clean_text += (
-                f"Это правило НЕ отменяется категорией средства — даже если оно «для тела», "
-                f"«смывается» или «наносится на живот». Наносить нельзя. "
-                f"Замените на безопасные альтернативы: стабильные формы витамина С (SAP, MAP, "
-                f"3-O-Ethyl Ascorbic Acid), ниацинамид, азелаиновая кислота (до 10%), "
-                f"гиалуроновая кислота, пантенол. Вы можете быть спокойны, я помогу подобрать "
-                f"безопасный уход для этого периода."
-            )
-            status = "bad"
-            status_emoji = "🔴"
-            stage_tag = "Актив или доп. уход"
-            actives_tag = preg_names
-            logger.warning(f"🔴 PREGNANCY HARD OVERRIDE: {preg_names} → forced bad (category={category!r})")
-    # === КОНЕЦ PREGNANCY-КОНТРОЛЯ ===
 
     # === МЕДИЦИНА: гарантированный дисклеймер ===
     if "medicine" in tags or "medicine_skin" in tags:
