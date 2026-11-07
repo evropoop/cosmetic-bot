@@ -381,24 +381,10 @@ async def analyze_composition(
     if is_protocol:
         dynamic_rules = f"{dynamic_rules}\n\n{PROTOCOL_MODULE}"
 
-    # === CRITICAL_PRE_CHECK: АЛЛЕРГИЯ ===
-    allergies = [t[len("allergy_"):] for t in tags if t.startswith("allergy_")]
+    # === Allergies: detection moved to Python override below ===
+    allergies = [tg[len("allergy_"):] for tg in tags if tg.startswith("allergy_")]
     if allergies:
-        allergy_str = ", ".join(allergies)
-        pre_check_block = (
-            "<CRITICAL_PRE_CHECK>\n"
-            f"ТЕГ АЛЛЕРГИИ: [Аллергия на {allergy_str}]\n"
-            f"ИНСТРУКЦИЯ: АЛЛЕРГИЯ ИМЕЕТ НАИВЫСШИЙ ПРИОРИТЕТ. Переведи слово «{allergy_str}» на латынь (INCI). "
-            f"Ищи любые производные (Extract, Oil, Water, Flower Water, Rosa, Rose и т.д.). "
-            f"Если ты находишь этот компонент в INCI — ты СРАЗУ ставишь 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. "
-            f"Беременность и другие диагнозы ОТМЕНЯЮТСЯ, если найден аллерген.\n"
-            f"ЕСЛИ НАЙДЕН: Сразу пиши «🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ» и упоминай аллерген.\n"
-            f"ЕСЛИ НЕ НАЙДЕН: ПРОСТО ПРОДОЛЖАЙ АНАЛИЗ. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО выводить теги <CRITICAL_PRE_CHECK>, <АНАЛИЗ СОСТАВА>, "
-            f"писать «ВАЛИДНОСТЬ», «ПРОВЕРКА ПРИОРИТЕТОВ». Твой ответ должен начинаться СРАЗУ с имени и статуса.\n"
-            f"</CRITICAL_PRE_CHECK>\n\n"
-        )
-        dynamic_rules = pre_check_block + dynamic_rules
-        logger.info(f"🟣 PRE_CHECK: аллергии={allergies!r}, блок добавлен")
+        logger.info(f"🟣 ALLERGIES in tags: {allergies!r} (Python override will handle)")
 
     _has_eyes = "УХОД ДЛЯ ВЕК" in dynamic_rules
     logger.info(f"🟣 analyze_composition: category={category!r}, rules_len={len(dynamic_rules)}, has_LIMITER_EYES={_has_eyes}")
@@ -486,14 +472,42 @@ async def analyze_composition(
     if raw_output:
         raw_output = _safe_trim(raw_output, 1200 if is_protocol else 500)
 
-    # Очистка служебных тегов
-    raw_output = re.sub(r'<CRITICAL_PRE_CHECK>.*?</CRITICAL_PRE_CHECK>', '', raw_output, flags=re.DOTALL).strip()
-    raw_output = re.sub(r'<[^>]+>', '', raw_output).strip()
-
-    # 🔒 Удаляем любые служебные блоки, которые модель могла вывалить в ответ
+    # 🔒 Удаляем любые служебные блоки
     raw_output = re.sub(r'<CRITICAL_PRE_CHECK>.*?</CRITICAL_PRE_CHECK>', '', raw_output, flags=re.DOTALL).strip()
     raw_output = re.sub(r'<[^>]{1,50}>.*?</[^>]{1,50}>', '', raw_output, flags=re.DOTALL).strip()
     raw_output = re.sub(r'<[^>]+>', '', raw_output).strip()
+
+    # 🔒 ANTI-LEAK: если модель вывалила reasoning — вырезаем только вердикт
+    if raw_output:
+        _cleaned = raw_output.replace('**', '')
+        _leak_markers = [
+            "КРИТИЧЕСКАЯ ПРОВЕРКА", "АНАЛИЗ СОСТАВА", "ПРОВЕРКА АЛЛЕРГИИ",
+            "Валидность:", "INCI-эквиваленты", "Сканирование состава",
+            "Диагнозы клиента:", "Структура:", "Рассуждени",
+            "# АНАЛИЗ", "## ",
+        ]
+        if any(m in _cleaned for m in _leak_markers):
+            _vp = re.compile(
+                re.escape(safe_name) + r',\s*(🚫|🔴|🟠|🟡|⚪|🟢|🔵)',
+                re.IGNORECASE
+            )
+            _ms = list(_vp.finditer(_cleaned))
+            if _ms:
+                raw_output = _cleaned[_ms[-1].start():].strip()
+                logger.warning(f"🔧 ANTI-LEAK (name): cut at pos {_ms[-1].start()}, before={len(_cleaned)}, after={len(raw_output)}")
+            else:
+                _vp2 = re.compile(
+                    r'(🚫|🔴|🟠|🟡|⚪|🟢|🔵)\s*(ВЫНУЖДЕН|ОДОБРЯЮ|ОСТАВЛЯЕМ|ОТКЛОНЯЕМ|ПУСТЫШКА|ИСКЛЮЧЕНИЕ)',
+                    re.IGNORECASE
+                )
+                _ms2 = list(_vp2.finditer(_cleaned))
+                if _ms2:
+                    raw_output = f"{safe_name}, " + _cleaned[_ms2[-1].start():].strip()
+                    logger.warning(f"🔧 ANTI-LEAK (emoji): cut at pos {_ms2[-1].start()}")
+                else:
+                    logger.error(f"🔴 ANTI-LEAK: не удалось извлечь вердикт (len={len(_cleaned)})")
+                    # Оставшийся мусор → пустой → сработает retry с temp=0
+                    raw_output = ""
 
     # Если пусто ИЛИ нет эмодзи — retry с temperature 0
     if not raw_output or _extract_status(raw_output) is None:
