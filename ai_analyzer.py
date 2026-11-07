@@ -854,7 +854,11 @@ async def analyze_composition(
                 f"Замените на успокаивающий уход без данных компонентов: церамиды, сквалан, центелла, пантенол, "
                 f"бисаболол. Вы можете быть спокойны, я помогу подобрать безопасную альтернативу."
             )
-            if status == "bad" and clean_text:
+            _coup_already_mentioned = any(x.lower() in clean_text.lower() for x in coup_veto)
+            if _coup_already_mentioned:
+                # LLM уже сама разобрала купероз-триггер — не дублируем
+                pass
+            elif status == "bad" and clean_text:
                 clean_text = f"{clean_text}\n\nДополнительно: {coup_msg}"
             else:
                 clean_text = f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. {coup_msg}"
