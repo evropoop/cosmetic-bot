@@ -836,7 +836,7 @@ async def analyze_composition(
                 reasons_coup.append(f"летучий спирт в первой половине: {', '.join(found_alcohol)}")
 
             coup_msg = (
-                f"🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. При куперозе и реактивности в составе "
+                f"При куперозе и реактивности в составе "
                 f"обнаружены абсолютные триггеры: {veto_str}. "
             )
             if found_mint:
@@ -857,7 +857,7 @@ async def analyze_composition(
             if status == "bad" and clean_text:
                 clean_text = f"{clean_text}\n\nДополнительно: {coup_msg}"
             else:
-                clean_text = f"{safe_name}, {coup_msg}"
+                clean_text = f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. {coup_msg}"
             status = "bad"
             status_emoji = "🔴"
             stage_tag = "Актив или доп. уход"
@@ -1149,7 +1149,7 @@ async def analyze_composition(
         logger.info(f"🟢 BODY TEXT FIX: заменены упоминания «лица» на «тела» в ответе")
     # === КОНЕЦ ФИКСА ===
 
-    trim_limit = 1000 if is_protocol else 400
+    trim_limit = 2000 if is_protocol else 400
     if len(clean_text) > trim_limit:
         cut = clean_text[:trim_limit].rfind(".")
         if cut > 200:
