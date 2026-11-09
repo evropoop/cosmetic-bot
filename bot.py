@@ -1543,7 +1543,7 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
 
             is_unlimited = (telegram_id in UNLIMITED_IDS)
             has_sub = db.has_active_subscription(user)
-            is_protocol = user.get("scanner_tariff") == "protocol_2500" and has_sub
+            is_protocol = is_unlimited or (user.get("scanner_tariff") == "protocol_2500" and has_sub)
 
             if is_unlimited:
                 await loading_msg.edit_text(clean_text)
@@ -1832,7 +1832,7 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
 
         is_unlimited = (telegram_id in UNLIMITED_IDS)
         has_sub = db.has_active_subscription(user)
-        is_protocol = user.get("scanner_tariff") == "protocol_2500" and has_sub
+        is_protocol = is_unlimited or (user.get("scanner_tariff") == "protocol_2500" and has_sub)
 
         if is_unlimited:
             await loading_msg.edit_text(clean_text)
