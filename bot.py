@@ -801,8 +801,9 @@ async def handle_payment_return(message: types.Message):
         telegram_id = int(parts[1])
         tariff_type = parts[2]
         
-        # Сохраняем платеж (сумму можно взять из order_id или поставить 1 для теста)
-        db.save_payment(order_id, telegram_id, 4900 if tariff_type == "pdf_4900" else 1, tariff_type)
+        # Сумма: pdf_4900 = 4900 ₽, тарифы = 1 ₽ (тестовый период!)
+        _amount = 4900 if tariff_type == "pdf_4900" else 1
+        db.save_payment(order_id, telegram_id, _amount, tariff_type)
         
         if tariff_type == "pdf_4900":
             # ЭТО РАЗОВАЯ ПОКУПКА PDF-ПРОТОКОЛА
@@ -1023,9 +1024,13 @@ async def pay_pdf_4900(callback: types.CallbackQuery):
 
 async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> str:
     order_id = f"user-{telegram_id}-{tariff_type}-{int(datetime.now().timestamp())}"
-    
+    _start_param = f"pay_success_{order_id}"
+    if len(_start_param) > 64:
+        logger.error(f"❌ Telegram start param >64: {_start_param!r}")
+    logger.info(f"💳 generate_prodamus_link: order_id={order_id!r}, amount={amount}, tariff={tariff_type!r}")
+
     bot_info = await bot.get_me()
-    success_url = f"https://t.me/{bot_info.username}?start=pay_success_{order_id}"
+    success_url = f"https://t.me/{bot_info.username}?start={_start_param}"
 
     data = {
         "do": "pay",
@@ -2326,18 +2331,34 @@ async def prodamus_webhook(request: web.Request):
         if post_data.get("payment_status") == "success":
             order_id = post_data.get("order_id")
             if not db.check_payment_exists(order_id):
-                parts = order_id.split("_")
+                # order_id = "user-<tid>-<tariff>-<ts>"  (split by "-")
+                parts = order_id.split("-")
                 telegram_id = int(parts[1])
                 tariff_type = parts[2]
-                amount = int(float(post_data.get("sum", 0))) 
-                
+                amount = int(float(post_data.get("sum", 0)))
+
                 db.save_payment(order_id, telegram_id, amount, tariff_type)
-                db.update_user_subscription(telegram_id, tariff_type, 30)
-                
-                try:
-                    await bot.send_message(telegram_id, "🎉 Оплата успешно получена! Доступ активирован на 30 дней.")
-                except Exception:
-                    pass
+
+                if tariff_type == "pdf_4900":
+                    db.cancel_retention_notifications(telegram_id)
+                    db.set_maria_order_status(telegram_id, "completed_vip")
+                    try:
+                        await bot.send_message(
+                            telegram_id,
+                            "🎉 Оплата PDF-протокола получена! Мария свяжется с вами."
+                        )
+                    except Exception:
+                        pass
+                else:
+                    db.update_user_subscription(telegram_id, tariff_type, 30)
+                    db.cancel_retention_notifications(telegram_id)
+                    try:
+                        await bot.send_message(
+                            telegram_id,
+                            "🎉 Оплата успешно получена! Доступ активирован на 30 дней. Проверьте /profile."
+                        )
+                    except Exception:
+                        pass
                 
         return web.Response(text="success")
     except Exception as e:
