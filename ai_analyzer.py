@@ -1108,6 +1108,123 @@ async def analyze_composition(
 
 
 
+    # === COMPACT 400-CHAR FORMAT (rebuild final bad-verdict) ===
+    if status == "bad":
+        _trig_final = []
+        _sl = safe_inci.lower()
+
+        # 1) Pregnancy + retinoids
+        if "pregnancy" in tags:
+            _preg = {
+                "retinol": "Retinol", "retinal": "Retinal",
+                "retinyl palmitate": "Retinyl Palmitate",
+                "retinyl acetate": "Retinyl Acetate",
+                "retinyl retinoate": "Retinyl Retinoate",
+                "hydroxypinacolone retinoate": "Hydroxypinacolone Retinoate",
+                "adapalene": "Adapalene",
+            }
+            _f = [n for k, n in _preg.items() if _has_ingredient(_sl, k)]
+            if _f:
+                _trig_final.append(f"{', '.join(_f)} — тератоген, риск пороков плода")
+
+        # 2) Couperose/reactive: mint/alcohol (skip for body)
+        if any(tg in tags for tg in ["couperose", "reactive"]) and category != "body":
+            _c = []
+            for k, n in {"mentha": "Mentha", "peppermint": "Peppermint", "menthol": "Menthol",
+                         "eucalyptus": "Eucalyptus", "camphor": "Camphor"}.items():
+                if _has_ingredient(_sl, k):
+                    _c.append(n)
+            for k, n in {"alcohol denat": "Alcohol Denat",
+                         "isopropyl alcohol": "Isopropyl Alcohol",
+                         "ethanol": "Ethanol"}.items():
+                if _has_ingredient(_sl, k):
+                    _c.append(n)
+            if _c:
+                _trig_final.append(f"{', '.join(dict.fromkeys(_c))} сожжёт барьер при куперозе/реактивности")
+
+        # 3) Allergy
+        if allergies:
+            _al_found = []
+            _syn_map = {
+                "мята": ["mentha", "peppermint"],
+                "ромашка": ["chamomilla", "chamomile"],
+                "мед": ["honey", "mel ", "propolis", "beeswax"],
+                "мёд": ["honey", "mel ", "propolis", "beeswax"],
+                "лаванда": ["lavandula", "lavender"],
+                "лимон": ["citrus limon", "lemon", "limonene"],
+                "апельсин": ["citrus sinensis", "orange", "limonene"],
+                "роза": ["rosa", "rose"], "розы": ["rosa", "rose"],
+            }
+            for _al in allergies:
+                _all = _al.lower().strip()
+                _syn = _syn_map.get(_all, [])
+                for _comp in [c.strip() for c in safe_inci.split(",")]:
+                    _cl = _comp.lower()
+                    if _all in _cl or any(s in _cl for s in _syn):
+                        _al_found.append(_comp)
+            if _al_found:
+                _trig_final.append(
+                    f"{', '.join(dict.fromkeys(_al_found))} — скрытый аллерген ({', '.join(allergies)})"
+                )
+
+        # 4) Pure Vitamin C + couperose
+        if any(tg in tags for tg in ["couperose", "reactive"]) and category in ["care", "eyes", "wash"]:
+            _soft = ["sodium ascorbyl phosphate", "magnesium ascorbyl phosphate",
+                     "3-o-ethyl ascorbic acid", "ethyl ascorbic acid",
+                     "ascorbyl glucoside", "tetrahexyldecyl ascorbate"]
+            if any(m in _sl for m in ["ascorbic acid", "l-ascorbic acid"]) and not any(m in _sl for m in _soft):
+                _trig_final.append("Ascorbic Acid (чистый) — pH 2.5-3.5 сожжёт куперозную кожу")
+
+        # 5) Comedogenic + acne
+        if any(tg in tags for tg in ["acne", "comedones", "problem"]) and category in ["care", "eyes", "wash"]:
+            _comedo = {"isopropyl myristate": "Isopropyl Myristate",
+                       "isopropyl palmitate": "Isopropyl Palmitate",
+                       "myristyl myristate": "Myristyl Myristate",
+                       "cocos nucifera": "Cocos Nucifera", "coconut oil": "Coconut Oil",
+                       "algae extract": "Algae Extract", "laureth-4": "Laureth-4"}
+            _cf = [n for k, n in _comedo.items() if _has_ingredient(_sl, k)]
+            if _cf:
+                _trig_final.append(f"{', '.join(_cf)} — комедоген, спровоцирует воспаления")
+
+        # 6) Eyes: acids
+        if category == "eyes":
+            _eye = []
+            for k, n in {"glycolic": "Glycolic Acid", "lactic acid": "Lactic Acid",
+                         "salicylic": "Salicylic Acid", "mandelic": "Mandelic Acid",
+                         "azelaic": "Azelaic Acid", "lactobionic": "Lactobionic Acid",
+                         "gluconolactone": "Gluconolactone"}.items():
+                if _has_ingredient(_sl, k):
+                    _eye.append(n)
+            if _eye:
+                _trig_final.append(f"{', '.join(_eye)} — недопустимо для кожи век")
+
+        # 7) Eyes: retinoids in bad base / risk-tags
+        if category == "eyes" and any(tg in tags for tg in ["barrier_broken", "pregnancy", "peeling"]):
+            _eye_r = {"retinol": "Retinol", "retinal": "Retinal", "retinyl retinoate": "Retinyl Retinoate"}
+            _er = [n for k, n in _eye_r.items() if _has_ingredient(_sl, k)]
+            if _er:
+                _trig_final.append(f"{', '.join(_er)} — ретиноид при риск-теге, ожог зоны век")
+
+        # Rebuild clean_text
+        if _trig_final:
+            _n = len(_trig_final)
+            if _n > 1:
+                _ord = "триггера" if _n <= 4 else "триггеров"
+                _num = " ".join(f"{i+1}) {trg}." for i, trg in enumerate(_trig_final))
+                _head = f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. {_n} {_ord}: {_num}"
+            else:
+                _head = f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. {_trig_final[0]}."
+
+            _tail = " Наносить нельзя. Замена: стабильный вит. С (SAP), ниацинамид, церамиды, пантенол."
+            if len(_head) + len(_tail) <= 400:
+                clean_text = _head + _tail
+            else:
+                clean_text = _head
+            status = "bad"
+            status_emoji = "🔴"
+            logger.info(f"🎯 COMPACT 400: {_n} trigger(s), len={len(clean_text)}")
+    # === END COMPACT 400-CHAR FORMAT ===
+
     # === МЕДИЦИНА: гарантированный дисклеймер ===
     if "medicine" in tags or "medicine_skin" in tags:
         disclaimer = (
@@ -1134,7 +1251,7 @@ async def analyze_composition(
         logger.info(f"🟢 BODY TEXT FIX: заменены упоминания «лица» на «тела» в ответе")
     # === КОНЕЦ ФИКСА ===
 
-    trim_limit = 700 if is_protocol else 500
+    trim_limit = 500 if is_protocol else 400
     if len(clean_text) > trim_limit:
         cut = clean_text[:trim_limit].rfind(".")
         if cut > 200:
