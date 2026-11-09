@@ -657,6 +657,21 @@ async def cmd_profile(message: types.Message, state: FSMContext):
 
     tags_str = _translate_tags(user.get("user_tags", []))
 
+    if telegram_id in UNLIMITED_IDS:
+        count = db.count_approved_products(telegram_id)
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"👑 Режим: Безлимитный доступ (владелец)\n"
+            f"Одобренных средств в вашей схеме: {count} шт."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")]
+        ])
+        await message.answer(text, reply_markup=kb)
+        return
+
     if not db.has_active_subscription(user):
         text = (
             f"👤 Имя: {user_name}\n"
