@@ -1331,11 +1331,15 @@ async def process_allergy(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     tags = data.get("tags", [])
-    tags.append(f"allergy_{allergy_text}")
+    _allergen_list = [a.strip() for a in re.split(r'[,;/]|\s+и\s+|\s+and\s+', allergy_text) if a.strip()]
+    for _a in _allergen_list:
+        _tag = f"allergy_{_a}"
+        if _tag not in tags:
+            tags.append(_tag)
 
     await state.update_data(tags=tags)
     await state.set_state(Form.survey)
-    await message.answer(f"Записано: аллергия на «{allergy_text}». Учту это при анализе.")
+    await message.answer(f"Записано: аллергия на «{', '.join(_allergen_list)}». Учту это при анализе.")
     await finish_survey(message, state)
 
 
