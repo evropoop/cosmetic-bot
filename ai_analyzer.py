@@ -1310,14 +1310,30 @@ async def analyze_composition(
             else:
                 _head = f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. {_trig_final[0]}."
 
-            _repl_map = {
-                "wash": "мягкие ПАВы (Coco-Glucoside, Sodium Cocoyl Isethionate)",
-                "care": "стабильный вит. С (SAP, MAP), ниацинамид, церамиды, пантенол",
-                "eyes": "пептиды, кофеин, сквалан",
-                "body": "баттеры, мягкие ПАВы, мочевина",
+            _repl_items = {
+                "wash": ["мягкие ПАВы (Coco-Glucoside, Sodium Cocoyl Isethionate)"],
+                "care": ["стабильный вит. С (SAP, MAP)", "ниацинамид", "церамиды", "пантенол"],
+                "eyes": ["пептиды", "кофеин", "сквалан"],
+                "body": ["баттеры", "мягкие ПАВы", "мочевина"],
             }
-            _replacement = _repl_map.get(category, _repl_map["care"])
-            _tail = f" Наносить нельзя. Замена: {_replacement}."
+            _items = list(_repl_items.get(category, _repl_items["care"]))
+            _filtered = []
+            for _item in _items:
+                _il = _item.lower()
+                _blocked = False
+                for _al in allergies:
+                    _al_l = _al.lower().strip()
+                    if not _al_l:
+                        continue
+                    if _al_l in _il:
+                        _blocked = True
+                        break
+                if not _blocked:
+                    _filtered.append(_item)
+            if _filtered:
+                _tail = f" Наносить нельзя. Замена: {', '.join(_filtered)}."
+            else:
+                _tail = " Наносить нельзя. Стандартные замены содержат ваш аллерген. Обратитесь к Марии через /tariffs для персонального подбора."
             if len(_head) + len(_tail) <= 400:
                 clean_text = _head + _tail
             else:
