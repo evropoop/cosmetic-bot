@@ -69,7 +69,7 @@ STAGE_TAG: [Мягкое очищение]
 ACTIVES_TAG: [Гидрофильные масла и эмульгаторы]"""
 
 
-MATRIX_WASH = """ ⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА АЛЛЕРГИИ: Если у клиентки есть аллергия на компонент, который физически присутствует в составе (в любой форме — Extract, Oil, Water, Ferment), статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ, ДАЖЕ ЕСЛИ этот компонент входит в список разрешённых активов (Niacinamide, Panthenol, Squalane, пептиды, Ceramide, гиалуроновая кислота и т.д.). Аллергия ВСЕГДА главнее любых одобрений. Если сомневаешься — выбирай 🔴. Никогда не выдавай ответ без эмодзи-статуса.ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДКЕ ПРИОРИТЕТА СВЕРХУ ВНИЗ (ПЕРВОЕ СОВПАДЕНИЕ ОПРЕДЕЛЯЕТ СТАТУС):
+MATRIX_WASH = """ ⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА АЛЛЕРГИИ: Если у клиентки есть аллергия на компонент, который физически присутствует в составе (в любой форме — Extract, Oil, Water, Ferment), статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ, ДАЖЕ ЕСЛИ этот компонент входит в список разрешённых активов (Niacinamide, Panthenol, Squalane, пептиды, Ceramide, гиалуроновая кислота и т.д.). Аллергия ВСЕГДА главнее любых одобрений. Если сомневаешься — выбирай 🔴. Никогда не выдавай ответ без эмодзи-статуса.ПРОВЕРЬ ВСЕ ПРАВИЛА НИЖЕ И НАЙДИ ВСЕ СОВПАДЕНИЯ. Итоговый статус — самый высокий приоритет из найденных нарушений. НО в тексте ответа ОБЯЗАТЕЛЬНО перечисли ВСЕ найденные триггеры, а не только первый:
 
 1. 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (Высший приоритет)
 - АБСОЛЮТНОЕ ВЕТО: Совпадение тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — примечание: Bakuchiol безопасен и разрешен!) или Salicylic Acid ДО консервантов; ЛИБО совпадение тега [Аллергия на ...] с компонентом в составе. КРИТИЧНО ДЛЯ АЛЛЕРГИЙ: ИИ ОБЯЗАН перевести название аллергена клиента на английский язык и латынь (INCI) и жестко искать любые его производные (Extract, Oil, Water, Ferment). ВАЖНО: Если аллергия на конкретное растение (роза, мята), ищи только его прямые производные (Rosa, Rose, Mentha). НЕ приравнивай общие ароматические компоненты (Citronellol, Linalool, Limonene) к аллергену, если они не являются частью названия растения в INCI. Например: «мята» = Peppermint / Mentha; «ромашка» = Chamomilla; «мед» = Honey / Mel / Propolis / Beeswax. При совпадении — статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. Стоп-лист комедогенов для лица: Isopropyl Myristate, Isopropyl Palmitate, Myristyl Myristate, Coconut Oil / Cocos Nucifera, Isopropyl Isostearate, Wheat Germ Oil / Triticum Vulgare, Algae Extract, Laureth-4, Linseed Oil / Linum Usitatissimum. При наличии тега [Акне / Комедоны / Проблемная] этот стоп-лист применяется ко ВСЕМ категориям лица — включая смываемые средства. Никаких поблажек «это же смывается водой».
@@ -85,7 +85,7 @@ MATRIX_WASH = """ ⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА
 ⚠️ КРИТИЧЕСКОЕ ПРАВИЛО ПРИ АКНЕ (переопределяет все статусы выше): Если у клиентки есть тег [Акне / Воспаления], [Комедоны] или [Проблемная], и в составе присутствует ЛЮБОЙ компонент из стоп-листа комедогенов — Isopropyl Myristate, Isopropyl Palmitate, Myristyl Myristate, Isopropyl Isostearate, Coconut Oil / Cocos Nucifera, Wheat Germ Oil / Triticum Vulgare, Algae Extract, Laureth-4, Linseed Oil / Linum Usitatissimum — статус МГНОВЕННО 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. Нейросети КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО делать поблажки на то, что это смываемое средство или что в составе есть салициловая кислота / цинк / чайное дерево. Смывание водой НЕ нейтрализует комедогенность: даже минута контакта оставляет плёнку в порах. Правило работает ДЛЯ ВСЕХ смываемых средств, включая гидрофильные масла (пункт 🔵 ИСКЛЮЧЕНИЕ отменяется при акне, если база содержит комедогены из списка выше)."""
 
 
-MATRIX_CARE = """⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА АЛЛЕРГИИ: Если у клиентки есть аллергия на компонент, который физически присутствует в составе (в любой форме — Extract, Oil, Water, Ferment), статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ, ДАЖЕ ЕСЛИ этот компонент входит в список разрешённых активов (Niacinamide, Panthenol, Squalane, пептиды, Ceramide, гиалуроновая кислота и т.д.). Аллергия ВСЕГДА главнее любых одобрений. Если сомневаешься — выбирай 🔴. Никогда не выдавай ответ без эмодзи-статуса. ВЫБЕРИ СТРОГО ОДИН СТАТУС В ПОРЯДКЕ ПРИОРИТЕТА СВЕРХУ ВНИЗ (ПЕРВОЕ СОВПАДЕНИЕ ОПРЕДЕЛЯЕТ СТАТУС):
+MATRIX_CARE = """⚡ ПРАВИЛО АБСОЛЮТНОГО ПРИОРИТЕТА АЛЛЕРГИИ: Если у клиентки есть аллергия на компонент, который физически присутствует в составе (в любой форме — Extract, Oil, Water, Ferment), статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ, ДАЖЕ ЕСЛИ этот компонент входит в список разрешённых активов (Niacinamide, Panthenol, Squalane, пептиды, Ceramide, гиалуроновая кислота и т.д.). Аллергия ВСЕГДА главнее любых одобрений. Если сомневаешься — выбирай 🔴. Никогда не выдавай ответ без эмодзи-статуса. ПРОВЕРЬ ВСЕ ПРАВИЛА НИЖЕ И НАЙДИ ВСЕ СОВПАДЕНИЯ. Итоговый статус — самый высокий приоритет из найденных нарушений. НО в тексте ответа ОБЯЗАТЕЛЬНО перечисли ВСЕ найденные триггеры, а не только первый:
 
 1. 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ (Высший приоритет)
 - АБСОЛЮТНОЕ ВЕТО: При совпадении тега [Беременность] с ретиноидами (Retinol, Retinal, Retinyl Palmitate, Retinyl Acetate, Hydroxypinacolone Retinoate, Adapalene — кроме безопасного Bakuchiol) или BHA (Salicylic Acid ДО консервантов), или токсичными УФ-фильтрами (Benzophenone-3 / Oxybenzone) или Alpha-Arbutin, Arbutin, Hydroquinone (арбутин распадается до гидрохинона — тератогенен для плода); ЛИБО при совпадении тега [Аллергия на ...] с компонентом в составе — НЕМЕДЛЕННО выдавай этот статус (никакие модификаторы ниже не могут отменить это вето!). КРИТИЧНО ДЛЯ АЛЛЕРГИЙ: ИИ ОБЯЗАН перевести название аллергена клиента на английский язык и латынь (INCI) и жестко искать любые его производные (Extract, Oil, Water, Ferment). ВАЖНО: Если аллергия на конкретное растение (роза, мята), ищи только его прямые производные (Rosa, Rose, Mentha). НЕ приравнивай общие ароматические компоненты (Citronellol, Linalool, Limonene) к аллергену, если они не являются частью названия растения в INCI. Например: мята» = Peppermint / Mentha; «ромашка» = Chamomilla; «мед» = Honey / Mel / Propolis / Beeswax. При совпадении — статус 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ.
@@ -1142,6 +1142,18 @@ async def analyze_composition(
             _f = [n for k, n in _preg.items() if _has_ingredient(_sl, k)]
             if _f:
                 _trig_final.append(f"{', '.join(_f)} — тератоген, риск пороков плода")
+            if _has_ingredient(_sl, "salicylic acid"):
+                _cons_list = [_sl.find(c) for c in ["phenoxyethanol", "ethylhexylglycerin", "sodium benzoate", "potassium sorbate"] if _sl.find(c) > 0]
+                _cons = min(_cons_list) if _cons_list else len(_sl)
+                _sal = _sl.find("salicylic acid")
+                if 0 <= _sal < _cons:
+                    _trig_final.append("Salicylic Acid (BHA) — проникает в кровоток")
+            _arb = {"alpha-arbutin": "Alpha-Arbutin", "arbutin": "Arbutin", "hydroquinone": "Hydroquinone"}
+            _arbf = [n for k, n in _arb.items() if _has_ingredient(_sl, k)]
+            if _arbf:
+                _trig_final.append(f"{', '.join(_arbf)} — тератоген (распад до гидрохинона)")
+            if _has_ingredient(_sl, "benzophenone-3") or _has_ingredient(_sl, "oxybenzone"):
+                _trig_final.append("Benzophenone-3/Oxybenzone — эндокринный дисраптор")
 
         # 2) Couperose/reactive: mint/alcohol (skip for body)
         if any(tg in tags for tg in ["couperose", "reactive"]) and category != "body":
@@ -1157,6 +1169,21 @@ async def analyze_composition(
                     _c.append(n)
             if _c:
                 _trig_final.append(f"{', '.join(dict.fromkeys(_c))} сожжёт барьер при куперозе/реактивности")
+            _abraziv = {"pumice": "Pumice", "juglans regia shell": "Juglans Regia Shell Powder",
+                        "prunus armeniaca seed powder": "Apricot Seed Powder",
+                        "walnut shell": "Walnut Shell Powder", "polyethylene beads": "Polyethylene Beads",
+                        "coffee powder": "Coffee Powder"}
+            _af = [n for k, n in _abraziv.items() if _has_ingredient(_sl, k)]
+            if _af:
+                _trig_final.append(f"{', '.join(_af)} — абразив травмирует сосуды")
+
+        if any(tg in tags for tg in ["barrier_broken", "dry", "peeling", "reactive"]):
+            _sls = {"sodium lauryl sulfate": "SLS", "sodium laureth sulfate": "SLES",
+                    "ammonium lauryl sulfate": "ALS", "ammonium laureth sulfate": "ALES",
+                    "sodium coco-sulfate": "Sodium Coco-Sulfate"}
+            _slsf = [n for k, n in _sls.items() if _has_ingredient(_sl, k)]
+            if _slsf:
+                _trig_final.append(f"{', '.join(_slsf)} — жёсткий сульфат разрушит ослабленный барьер")
 
         # 3) Allergy
         if allergies:
