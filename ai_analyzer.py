@@ -1310,7 +1310,14 @@ async def analyze_composition(
             else:
                 _head = f"{safe_name}, 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. {_trig_final[0]}."
 
-            _tail = " Наносить нельзя. Замена: стабильный вит. С (SAP), ниацинамид, церамиды, пантенол."
+            _repl_map = {
+                "wash": "мягкие ПАВы (Coco-Glucoside, Sodium Cocoyl Isethionate)",
+                "care": "стабильный вит. С (SAP, MAP), ниацинамид, церамиды, пантенол",
+                "eyes": "пептиды, кофеин, сквалан",
+                "body": "баттеры, мягкие ПАВы, мочевина",
+            }
+            _replacement = _repl_map.get(category, _repl_map["care"])
+            _tail = f" Наносить нельзя. Замена: {_replacement}."
             if len(_head) + len(_tail) <= 400:
                 clean_text = _head + _tail
             else:
