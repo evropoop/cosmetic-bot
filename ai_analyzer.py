@@ -35,7 +35,7 @@ BASE_PROMPT = """РОЛЬ И ТОНАЛЬНОСТЬ:
 - «Принимать по 1 таблетке после еды, курс 10 дней» — дозировка препарата, не INCI.
 - «Смешать 2 столовые ложки мёда с 1 ложкой лимона» — рецепт, не INCI.
 
-3. АЛЛЕРГИИ ИМЕЮТ НАИВЫСШИЙ ПРИОРИТЕТ: Если в тегах указана аллергия (например, [Аллергия на Роза], [Аллергия на мята]), ты ОБЯЗАН перевести это слово на латынь/английский (INCI) и найти в составе любые его производные (Extract, Oil, Water, Flower Water, Rosa, Rose, Mentha, Peppermint и т.д.). 
+3. АЛЛЕРГИИ ИМЕЮТ НАИВЫСШИЙ ПРИОРИТЕТ: Если в тегах указана аллергия (например, [Аллергия на Роза], [Аллергия на мята], [Аллергия на ниацинамид]), ты ОБЯЗАН перевести это слово на латынь/английский (INCI) и найти в составе любые его производные (Extract, Oil, Water, Flower Water, Rosa, Rose, Mentha, Peppermint, Niacinamide и т.д.). Примеры перевода: «Ниацинамид» = Niacinamide; «Пантенол» = Panthenol; «Церамиды» = Ceramide; «Сквалан» = Squalane; «Гиалуроновая кислота» = Hyaluronic Acid / Sodium Hyaluronate; «Мёд» = Mel / Honey / Propolis; «Ромашка» = Chamomilla. Ищи в составе именно английские INCI-термины. 
    - Если аллерген НАЙДЕН в составе - ставь 🔴 ВЫНУЖДЕН ЗАБРАКОВАТЬ. ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ К ВЫВОДУ: Запрещено обобщать найденные аллергены. Ты должен выписать ТОЧНЫЕ INCI-наименования из состава (на английском языке), которые вызвали блокировку (например, Rosa Damascena Flower Water, Citronellol), и перечислить их через запятую, объяснив связь с аллергеном клиента. Это правило отменяет любые другие статусы (даже беременность или идеальную базу).
    - Если аллерген НЕ НАЙДЕН — продолжай анализ по правилам. ВАЖНО: НЕ считай общие ароматические компоненты (Citronellol, Geraniol, Linalool, Limonene, Citral, Coumarin, Eugenol) производными конкретного растения. Это отдельные вещества. Если аллергия на розу - ищи только Rosa, Rose, Rosa Damascena, Rosa Canina. Citronellol НЕ является производным розы.
 
@@ -1195,6 +1195,55 @@ async def analyze_composition(
                 'щ':'shch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya',
             })
             _syn_map = {
+                # Популярные активы и уходовые компоненты (кириллица → INCI)
+                "ниацинамид": ["niacinamide", "nicotinamide"],
+                "пантенол": ["panthenol"],
+                "церамиды": ["ceramide"], "церамид": ["ceramide"],
+                "сквалан": ["squalane"], "сквален": ["squalene"],
+                "гиалуроновая кислота": ["hyaluronic acid", "sodium hyaluronate"],
+                "гиалуроновая": ["hyaluronic acid", "sodium hyaluronate"],
+                "ретинол": ["retinol", "retinal", "retinyl"],
+                "салициловая кислота": ["salicylic acid"],
+                "азелаиновая кислота": ["azelaic acid"],
+                "гликолевая кислота": ["glycolic acid"],
+                "молочная кислота": ["lactic acid"],
+                "миндальная кислота": ["mandelic acid"],
+                "витамин с": ["ascorbic acid", "ascorbyl"],
+                "витамин е": ["tocopherol", "tocopheryl"],
+                "токоферол": ["tocopherol"],
+                "аллантоин": ["allantoin"],
+                "бисаболол": ["bisabolol"],
+                "центелла": ["centella", "centella asiatica"],
+                "пептиды": ["peptide"], "пептид": ["peptide"],
+                "кофеин": ["caffeine"],
+                "мочевина": ["urea"],
+                "холестерин": ["cholesterol"],
+                "глицерин": ["glycerin", "glycerol"],
+                "бетаин": ["betaine"],
+                "коллаген": ["collagen"],
+                "эластин": ["elastin"],
+                "аденозин": ["adenosine"],
+                "арбутин": ["arbutin"],
+                "резвератрол": ["resveratrol"],
+                "бензоил пероксид": ["benzoyl peroxide"],
+                "цинк": ["zinc"], "цинка": ["zinc"],
+                "сера": ["sulfur"],
+                "масло чайного дерева": ["melaleuca", "tea tree"],
+                "алоэ вера": ["aloe"],
+                "календула": ["calendula"],
+                "зверобой": ["hypericum"],
+                "облепиха": ["hippophae"],
+                "виноградная косточка": ["vitis vinifera"],
+                "авокадо": ["persea gratissima"],
+                "оливковое масло": ["olea europaea"],
+                "миндальное масло": ["prunus amygdalus"],
+                "кокосовое масло": ["cocos nucifera"],
+                "ши": ["butyrospermum parkii", "shea"],
+                "какао": ["theobroma cacao"],
+                "жожоба": ["simmondsia chinensis", "jojoba"],
+                "аргановое масло": ["argania spinosa"],
+                "лаванда": ["lavandula", "lavender"],
+                "розмарин": ["rosmarinus", "rosemary"],
                 # Растения
                 "мята": ["mentha", "peppermint", "menthol"],
                 "перечная мята": ["mentha piperita", "peppermint"],
