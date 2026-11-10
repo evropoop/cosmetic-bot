@@ -1151,23 +1151,75 @@ async def analyze_composition(
         # 3) Allergy
         if allergies:
             _al_found = []
+            _TRANSLIT = str.maketrans({
+                'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z',
+                'и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r',
+                'с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh',
+                'щ':'shch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya',
+            })
             _syn_map = {
-                "мята": ["mentha", "peppermint"],
+                # Растения
+                "мята": ["mentha", "peppermint", "menthol"],
+                "перечная мята": ["mentha piperita", "peppermint"],
                 "ромашка": ["chamomilla", "chamomile"],
-                "мед": ["honey", "mel ", "propolis", "beeswax"],
-                "мёд": ["honey", "mel ", "propolis", "beeswax"],
                 "лаванда": ["lavandula", "lavender"],
+                "роза": ["rosa", "rose"],
+                "розы": ["rosa", "rose"],
+                "шиповник": ["rosa canina", "rosehip"],
                 "лимон": ["citrus limon", "lemon", "limonene"],
                 "апельсин": ["citrus sinensis", "orange", "limonene"],
-                "роза": ["rosa", "rose"], "розы": ["rosa", "rose"],
+                "лайм": ["citrus aurantifolia", "lime"],
+                "грейпфрут": ["citrus paradisi", "grapefruit"],
+                "бергамот": ["citrus bergamia", "bergamot"],
+                "цитрус": ["citrus", "limonene", "citral"],
+                "эвкалипт": ["eucalyptus"],
+                "тимьян": ["thymus", "thymol"],
+                "чабрец": ["thymus", "thymol"],
+                "розмарин": ["rosmarinus", "rosemary"],
+                "шалфей": ["salvia", "sage"],
+                "герань": ["pelargonium", "geraniol"],
+                "иланг": ["cananga", "ylang"],
+                "пачули": ["pogostemon", "patchouli"],
+                "кедр": ["cedrus"],
+                "чайное дерево": ["melaleuca"],
+                "календула": ["calendula"],
+                "тысячелистник": ["achillea"],
+                "зверобой": ["hypericum"],
+                "алоэ": ["aloe"],
+                # Пчеловодство / животные
+                "мед": ["honey", "mel", "propolis", "beeswax", "cera alba", "royal jelly", "bee pollen"],
+                "мёд": ["honey", "mel", "propolis", "beeswax", "cera alba", "royal jelly", "bee pollen"],
+                "прополис": ["propolis"],
+                "пчелиный воск": ["beeswax", "cera alba"],
+                "маточное молочко": ["royal jelly"],
+                "пчелиный яд": ["bee venom", "apitoxin"],
+                "цветочная пыльца": ["bee pollen"],
+                "продукты пчеловодства": ["honey", "propolis", "beeswax", "cera alba", "royal jelly", "bee pollen"],
+                "латекс": ["latex", "hevea"],
+                "никель": ["nickel"],
+                "ланоин": ["lanolin", "wool wax"],
+                "лактоза": ["lactose", "milk"],
+                # Орехи / злаки
+                "миндаль": ["prunus amygdalus", "almond"],
+                "грецкий орех": ["juglans regia", "walnut"],
+                "фундук": ["corylus", "hazelnut"],
+                "кокос": ["cocos nucifera", "coconut"],
+                "соя": ["soja", "glycine soja", "soybean"],
+                "пшеница": ["triticum", "wheat"],
+                "глютен": ["triticum", "wheat", "hordeum", "avena"],
             }
             for _al in allergies:
                 _all = _al.lower().strip()
-                _syn = _syn_map.get(_all, [])
+                _syn = list(_syn_map.get(_all, []))
+                # fallback: транслитерация (только для длинных слов)
+                _tr = _all.translate(_TRANSLIT)
+                if _tr and _tr != _all and len(_tr) >= 5:
+                    _syn.append(_tr)
                 for _comp in [c.strip() for c in safe_inci.split(",")]:
                     _cl = _comp.lower()
-                    if _all in _cl or any(s in _cl for s in _syn):
+                    if _all in _cl or any(s in _cl for s in _syn if len(s) >= 3):
                         _al_found.append(_comp)
+                        break
             if _al_found:
                 _trig_final.append(
                     f"{', '.join(dict.fromkeys(_al_found))} — скрытый аллерген ({', '.join(allergies)})"
