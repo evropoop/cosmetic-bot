@@ -1003,22 +1003,6 @@ async def pay_pdf_4900(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-    db.cancel_retention_notifications(telegram_id)
-    db.set_maria_order_status(telegram_id, "completed_vip")
-
-    try:
-        await bot.send_message(ADMIN_ID, f"🎉 ОПЛАЧЕН PDF-ПРОТОКОЛ (4 900 ₽)\nКлиент: {user_name}\nID: {telegram_id}")
-    except Exception:
-        pass
-
-    await callback.message.answer(
-        "Оплата успешно принята! Мария уже получила данные вашей диагностики. "
-        "Нажмите на кнопку ниже, чтобы перейти в личный диалог с Марией и согласовать комфортный бюджет на покупку средств 👇",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
-        ])
-    )
-    await callback.answer()
 
 
 _PRODUCT_NAMES = {
