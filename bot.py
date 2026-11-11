@@ -801,8 +801,8 @@ async def handle_payment_return(message: types.Message):
         telegram_id = int(parts[1])
         tariff_type = parts[2]
         
-        # Сумма: pdf_4900 = 4900 ₽, тарифы = 1 ₽ (тестовый период!)
-        _amount = 4900 if tariff_type == "pdf_4900" else 1
+        _AMOUNT_MAP = {"pdf_4900": 4900, "audit_1000": 1000, "protocol_2500": 2500}
+        _amount = _AMOUNT_MAP.get(tariff_type, 0)
         db.save_payment(order_id, telegram_id, _amount, tariff_type)
         
         if tariff_type == "pdf_4900":
@@ -994,8 +994,7 @@ async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "pay_pdf_4900")
 async def pay_pdf_4900(callback: types.CallbackQuery):
-    # Генерируем ссылку на Prodamus для 4900 рублей
-    link = await generate_prodamus_link(callback.from_user.id, 1, "pdf_4900")
+    link = await generate_prodamus_link(callback.from_user.id, 4900, "pdf_4900")
     await callback.message.answer(
         "Для оплаты Персонального PDF-протокола (4 900 ₽) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1022,6 +1021,13 @@ async def pay_pdf_4900(callback: types.CallbackQuery):
     await callback.answer()
 
 
+_PRODUCT_NAMES = {
+    "audit_1000": "Базовый аудит (30 дней)",
+    "protocol_2500": "Сборка протокола (30 дней)",
+    "pdf_4900": "Персональный PDF-протокол",
+}
+
+
 async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str) -> str:
     order_id = f"user-{telegram_id}-{tariff_type}-{int(datetime.now().timestamp())}"
     _start_param = f"pay_success_{order_id}"
@@ -1040,7 +1046,7 @@ async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str
         "urlReturn": f"https://t.me/{bot_info.username}",
         "products": [
             {
-                "name": f"Доступ к алгоритму ({tariff_type})",
+                "name": _PRODUCT_NAMES.get(tariff_type, f"Доступ к алгоритму ({tariff_type})"),
                 "price": str(amount),
                 "quantity": "1"
             }
@@ -1056,10 +1062,9 @@ async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str
 
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
-    # ВРЕМЕННО ДЛЯ ТЕСТА: 1 рубль
-    link = await generate_prodamus_link(callback.from_user.id, 1, "audit_1000") 
+    link = await generate_prodamus_link(callback.from_user.id, 1000, "audit_1000")
     await callback.message.answer(
-        "Для оплаты тарифа «Аудит» (ТЕСТ 1 ₽) нажмите кнопку ниже:",
+        "Для оплаты тарифа «Аудит» (1000 ₽ / 30 дней) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
         ])
@@ -1068,10 +1073,9 @@ async def pay_audit_30(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "pay_restore_90")
 async def pay_restore_90(callback: types.CallbackQuery):
-    # ВРЕМЕННО ДЛЯ ТЕСТА: 1 рубль
-    link = await generate_prodamus_link(callback.from_user.id, 1, "protocol_2500")
+    link = await generate_prodamus_link(callback.from_user.id, 2500, "protocol_2500")
     await callback.message.answer(
-        "Для оплаты тарифа «Сборка протокола» (ТЕСТ 1 ₽) нажмите кнопку ниже:",
+        "Для оплаты тарифа «Сборка протокола» (2500 ₽ / 30 дней) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
         ])
