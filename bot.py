@@ -179,7 +179,7 @@ def get_user_tariff(user: dict) -> str:
 
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🤖 Собрать уход с Романом")],
+        [KeyboardButton(text="🔍 Проверить новое средство")],
         [KeyboardButton(text="💬 Задать вопрос Марии")]
     ], resize_keyboard=True)
 
@@ -201,7 +201,7 @@ def get_start_keyboard():
 
 def get_path_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Собрать уход с Романом", callback_data="go_scanner")],
+        [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="go_scanner")],
         [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
         [InlineKeyboardButton(text="💳 Посмотреть тарифы", callback_data="show_tariffs")] # <--- ДОБАВИЛИ
     ])
@@ -233,18 +233,18 @@ PAYWALL_TEXT = (
     "Бесплатный лимит исчерпан. По двум банкам архитектуру не выстроить, а наносить непроверенные средства на вашу кожу сейчас небезопасно.\n\n"
     "Выбирайте тариф ниже, и давайте соберем ваш идеальный уход:\n\n"
     "💳 <b>БАЗОВЫЙ АУДИТ (1000 ₽ / 30 дней)</b>\n"
-    "Быстрая и бескомпромиссная проверка средств до того, как они коснутся вашего лица. Безлимитный сканер составов распознает скрытые аллергены, замаскированные кислоты и тяжелые масла. Защита от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
+    "▪️ Быстрая проверка составов до того, как они коснутся вашего лица.\n▪️ Безлимитный сканер: распознает скрытые угрозы, аллергены и пустышки.\n▪️ Защита бюджета: спасает от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
     "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
-    "Глубокий аудит вашего ухода 24/7. Алгоритм не просто сканирует одну банку — он анализирует все ваши средства целиком. Роман Андреевич вычисляет опасные пересечения активов, показывает, каких шагов не хватает для идеальной кожи (например, базового крема или SPF) и шаг за шагом собирает для вас безупречную, безопасную систему ухода. Это ваша страховка от химических ожогов и выброшенных на ветер денег.\n\n"
+    "▫️ Интеллектуальная память: алгоритм не просто сканирует одну банку — он запоминает и анализирует весь ваш уход целиком.\n▫️ Матрица безопасности: вычисляет конфликт составов и страхует от химических ожогов.\n▫️ Архитектура ухода: показывает, каких позиций не хватает (например, базового крема или SPF), и собирает для вас безопасную систему.\n▫️ Умная экономия: больше никаких выброшенных на ветер денег.\n\n"
     "Выберите тариф ниже — и я включу сканер составов без ограничений."
 )
 
 WARMUP_TEXT = (
     "🤖 Роман Андреевич: В будущем вы сможете продолжить работу со мной в двух форматах:\n\n"
     "💳 <b>БАЗОВЫЙ АУДИТ (1000 ₽ / 30 дней)</b>\n"
-    "Быстрая и бескомпромиссная проверка средств до того, как они коснутся вашего лица. Безлимитный сканер составов распознает скрытые аллергены, замаскированные кислоты и тяжелые масла. Защита от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
+    "▪️ Быстрая проверка составов до того, как они коснутся вашего лица.\n▪️ Безлимитный сканер: распознает скрытые угрозы, аллергены и пустышки.\n▪️ Защита бюджета: спасает от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
     "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
-    "Глубокий аудит вашего ухода 24/7. Алгоритм не просто сканирует одну банку — он анализирует все ваши средства целиком. Роман Андреевич вычисляет опасные пересечения активов, показывает, каких шагов не хватает для идеальной кожи (например, базового крема или SPF) и шаг за шагом собирает для вас безупречную, безопасную систему ухода. Это ваша страховка от химических ожогов и выброшенных на ветер денег.\n\n"
+    "▫️ Интеллектуальная память: алгоритм не просто сканирует одну банку — он запоминает и анализирует весь ваш уход целиком.\n▫️ Матрица безопасности: вычисляет конфликт составов и страхует от химических ожогов.\n▫️ Архитектура ухода: показывает, каких позиций не хватает (например, базового крема или SPF), и собирает для вас безопасную систему.\n▫️ Умная экономия: больше никаких выброшенных на ветер денег.\n\n"
     "🎁 Но у вас осталась еще 1 бесплатная попытка! Какую категорию проверим следующей?"
 )
 
@@ -470,14 +470,14 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
     if notif_type in ["14d", "42d", "120d"]:
         # Только кнопка Марии (деньги-делегирование)
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
         ])
     elif notif_type == "180d":
         # Финальное касание: тарифы + Мария
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
-            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
         ])
     elif notif_type == "renewal_audit":
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -488,7 +488,8 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
         kb = build_stage_keyboard(telegram_id)
     elif notif_type == "reactivation_44d":
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
         ])
     elif notif_type in ["reactivation_30d", "reactivation_75d"]:
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -580,17 +581,6 @@ async def send_client_card_to_admin(client_user: dict, log_lead: bool = True) ->
         f"💊 Медицина: {medical_note}"
     )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="⏸ Пауза пушей на 72 часа (Идет диалог)",
-            callback_data=f"admin_pause:{telegram_id}"
-        )],
-        [InlineKeyboardButton(
-            text="✅ Купила Бокс / PDF (Отключить пуши навсегда)",
-            callback_data=f"admin_vip:{telegram_id}"
-        )]
-    ])
-
     if log_lead:
         try:
             db.save_lead(
@@ -603,7 +593,7 @@ async def send_client_card_to_admin(client_user: dict, log_lead: bool = True) ->
             logger.warning(f"Не удалось сохранить лид {telegram_id}: {e}")
 
     try:
-        await bot.send_message(ADMIN_ID, text, reply_markup=kb, parse_mode="HTML")
+        await bot.send_message(ADMIN_ID, text, parse_mode="HTML")
         logger.info(f"📇 Карточка лида #{telegram_id} отправлена админу {ADMIN_ID}")
         return True
     except Exception as e:
@@ -769,16 +759,15 @@ async def handle_back_to_profile(callback: types.CallbackQuery, state: FSMContex
 @dp.message(F.text == "/tariffs")
 async def cmd_tariffs(message: types.Message):
     text = (
-        "🤖 Роман Андреевич: Выберите формат работы с алгоритмом или закажите готовую систему у Марии:\n\n"
+        "🤖 Роман Андреевич: Выберите формат работы:\n\n"
         "💳 <b>БАЗОВЫЙ АУДИТ (1000 ₽ / 30 дней)</b>\n"
-        "Быстрая и бескомпромиссная проверка средств до того, как они коснутся вашего лица. Безлимитный сканер составов распознает скрытые аллергены, замаскированные кислоты и тяжелые масла. Защита от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
+        "▪️ Быстрая проверка составов до того, как они коснутся вашего лица.\n▪️ Безлимитный сканер: распознает скрытые угрозы, аллергены и пустышки.\n▪️ Защита бюджета: спасает от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
         "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
-        "Глубокий аудит вашего ухода 24/7. Алгоритм не просто сканирует одну банку — он анализирует все ваши средства целиком. Роман Андреевич вычисляет опасные пересечения активов, показывает, каких шагов не хватает для идеальной кожи (например, базового крема или SPF) и шаг за шагом собирает для вас безупречную, безопасную систему ухода. Это ваша страховка от химических ожогов и выброшенных на ветер денег.\n\n"
+        "▫️ Интеллектуальная память: алгоритм не просто сканирует одну банку — он запоминает и анализирует весь ваш уход целиком.\n▫️ Матрица безопасности: вычисляет конфликт составов и страхует от химических ожогов.\n▫️ Архитектура ухода: показывает, каких позиций не хватает (например, базового крема или SPF), и собирает для вас безопасную систему.\n▫️ Умная экономия: больше никаких выброшенных на ветер денег.\n\n"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-        [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
-        [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+        [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -910,7 +899,7 @@ async def code_box(message: types.Message, state: FSMContext):
     await cmd_start(message, state)
 
 
-@dp.message(F.text == "🤖 Собрать уход с Романом")
+@dp.message(F.text == "🔍 Проверить новое средство")
 async def gather_care_start(message: types.Message, state: FSMContext):
     telegram_id = message.from_user.id
     user = db.get_or_create_user(telegram_id)
@@ -2126,8 +2115,7 @@ async def finish_audit(callback: types.CallbackQuery):
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
-        [InlineKeyboardButton(text="💳 Перейти на базовый Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-        [InlineKeyboardButton(text="👑 Устала искать сама. Нужен готовый уход от Марии", callback_data="want_mariya_box")]
+        [InlineKeyboardButton(text="💳 Перейти на базовый Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")]
     ])
 
     try:
@@ -2146,165 +2134,13 @@ def _is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
 
-@dp.callback_query(F.data.startswith("admin_pause:"))
-async def admin_pause(callback: types.CallbackQuery):
-    if not _is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-
-    try:
-        tid = int(callback.data.split(":", 1)[1])
-    except (ValueError, IndexError):
-        await callback.answer("❌ Повреждённые данные кнопки", show_alert=True)
-        return
-
-    db.set_maria_order_status(tid, "paused_72h")
-
-    try:
-        db.delay_retention_notifications(tid, hours=72)
-    except Exception as e:
-        logger.error(f"Не удалось отложить пуши для {tid}: {e}")
-        await callback.answer("⚠️ Статус сохранён, но пуши не перенеслись. Проверьте логи.",
-                              show_alert=True)
-        return
-
-    try:
-        original = callback.message.html_text or callback.message.text or ""
-        await callback.message.edit_text(
-            f"{original}\n\n⏸ <b>Пуши остановлены на 72ч</b>",
-            parse_mode="HTML",
-            reply_markup=None,
-        )
-    except Exception as e:
-        logger.warning(f"Не удалось отредактировать карточку {tid}: {e}")
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-
-    await callback.answer("Пуши отложены на 72 часа", show_alert=True)
-    logger.info(f"⏸ admin_pause: клиент {tid} → paused_72h (админ {callback.from_user.id})")
-
-
-@dp.callback_query(F.data.startswith("admin_vip:"))
-async def admin_vip(callback: types.CallbackQuery):
-    if not _is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-
-    try:
-        tid = int(callback.data.split(":", 1)[1])
-    except (ValueError, IndexError):
-        await callback.answer("❌ Повреждённые данные кнопки", show_alert=True)
-        return
-
-    db.set_maria_order_status(tid, "completed_vip")
-
-    try:
-        db.cancel_retention_notifications(tid)
-    except Exception as e:
-        logger.error(f"Не удалось отменить пуши для {tid}: {e}")
-        await callback.answer("⚠️ Статус сохранён, но пуши не отменены. Проверьте логи.",
-                              show_alert=True)
-        return
-
-    try:
-        original = callback.message.html_text or callback.message.text or ""
-        await callback.message.edit_text(
-            f"{original}\n\n✅ <b>Клиент переведен в статус VIP (Пуши отключены навсегда)</b>",
-            parse_mode="HTML",
-            reply_markup=None,
-        )
-    except Exception as e:
-        logger.warning(f"Не удалось отредактировать карточку {tid}: {e}")
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-
-    await callback.answer("Клиент помечен как VIP, пуши отключены", show_alert=True)
-    logger.info(f"✅ admin_vip: клиент {tid} → completed_vip (админ {callback.from_user.id})")
-
-
 # =====================================================================
 # АДМИН-ПУЛЬТ: поиск клиента по хэштегу #telegram_id
 # =====================================================================
 
-@dp.message(F.from_user.id == ADMIN_ID, F.text.regexp(r"#\d{5,}"))
-async def admin_search_client(message: types.Message, state: FSMContext):
-    if await state.get_state() is not None:
-        return
-
-    match = re.search(r"#(\d{5,})", message.text)
-    if not match:
-        return
-
-    tid = int(match.group(1))
-
-    user = db.get_user(tid)
-    if not user:
-        await message.answer(f"❌ Клиент с кодом <code>#{tid}</code> не найден в базе",
-                             parse_mode="HTML")
-        logger.info(f"🔍 admin_search: клиент #{tid} не найден (искал {message.from_user.id})")
-        return
-
-    ok = await send_client_card_to_admin(user, log_lead=False)
-    if not ok:
-        await message.answer("⚠️ Карточка не отправлена (см. логи). Проверьте, что админ доступен.")
-    else:
-        logger.info(f"🔍 admin_search: карточка #{tid} отправлена (искал {message.from_user.id})")
-
-
 # =====================================================================
 # АДМИН-ПАНЕЛЬ /admin
 # =====================================================================
-
-@dp.message(F.text == "/admin")
-async def cmd_admin(message: types.Message):
-    telegram_id = message.from_user.id
-    if telegram_id not in [OWNER_ID, MARIYA_ID, ADMIN_ID]:
-        await message.answer("⛔ У вас нет доступа к этой команде.")
-        return
-
-    conn = db.get_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM users")
-    total_users = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE survey_done = 1")
-    surveyed_users = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM users WHERE scanner_expires_at > ?", (datetime.now().isoformat(),))
-    active_subs = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM leads WHERE status = 'new'")
-    new_leads = cur.fetchone()[0]
-
-    conn.close()
-
-    text = (
-        "👑 <b>Админ-панель</b>\n\n"
-        f"👥 Всего пользователей: {total_users}\n"
-        f"📋 Прошли анкету: {surveyed_users}\n"
-        f"💳 Активных подписок: {active_subs}\n"
-        f"🆕 Новых заявок (лидов): {new_leads}\n"
-    )
-    await message.answer(text, parse_mode="HTML")
-
-
-# =====================================================================
-# TEMP: логирование file_id входящих video_note (для сбора 3 видео)
-# =====================================================================
-
-@dp.message(F.video_note)
-async def _capture_video_note_id(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    fid = message.video_note.file_id
-    logger.info(f"🎥 VIDEO_NOTE FILE_ID: {fid}")
-    await message.answer(f"🎥 file_id:\n<code>{fid}</code>", parse_mode="HTML")
-
 
 # =====================================================================
 # ENTRY POINT
@@ -2383,7 +2219,6 @@ async def main():
             BotCommand(command="start",   description="Запуск"),
             BotCommand(command="profile", description="Профиль и тариф"),
             BotCommand(command="tariffs", description="Тарифы"),
-            BotCommand(command="admin",   description="Админ-панель"),
         ])
     except Exception as e:
         logger.warning(f"Не удалось установить команды: {e}")
