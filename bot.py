@@ -180,7 +180,7 @@ def get_user_tariff(user: dict) -> str:
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🤖 Собрать уход с Романом")],
-        [KeyboardButton(text="📝 Забрать уход от Марии")]
+        [KeyboardButton(text="💬 Задать вопрос Марии")]
     ], resize_keyboard=True)
 
 
@@ -202,7 +202,6 @@ def get_start_keyboard():
 def get_path_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Собрать уход с Романом", callback_data="go_scanner")],
-        [InlineKeyboardButton(text="👑 Хочу готовый уход от Марии", callback_data="want_mariya_box")],
         [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
         [InlineKeyboardButton(text="💳 Посмотреть тарифы", callback_data="show_tariffs")] # <--- ДОБАВИЛИ
     ])
@@ -237,7 +236,7 @@ PAYWALL_TEXT = (
     "Быстрая и бескомпромиссная проверка средств до того, как они коснутся вашего лица. Безлимитный сканер составов распознает скрытые аллергены, замаскированные кислоты и тяжелые масла. Защита от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
     "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
     "Глубокий аудит вашего ухода 24/7. Алгоритм не просто сканирует одну банку — он анализирует все ваши средства целиком. Роман Андреевич вычисляет опасные пересечения активов, показывает, каких шагов не хватает для идеальной кожи (например, базового крема или SPF) и шаг за шагом собирает для вас безупречную, безопасную систему ухода. Это ваша страховка от химических ожогов и выброшенных на ветер денег.\n\n"
-    "Устали подбирать сами? Закажите Индивидуальный Бокс или PDF-протокол у создателя проекта, Марии:"
+    "Выберите тариф ниже — и я включу сканер составов без ограничений."
 )
 
 WARMUP_TEXT = (
@@ -255,8 +254,7 @@ async def send_paywall(message: types.Message):
         PAYWALL_TEXT,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")],
-            [InlineKeyboardButton(text="👑 Готовый уход от Марии", callback_data="want_mariya_box")]
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
         ]),
         parse_mode="HTML"
     )
@@ -776,7 +774,6 @@ async def cmd_tariffs(message: types.Message):
         "Быстрая и бескомпромиссная проверка средств до того, как они коснутся вашего лица. Безлимитный сканер составов распознает скрытые аллергены, замаскированные кислоты и тяжелые масла. Защита от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
         "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
         "Глубокий аудит вашего ухода 24/7. Алгоритм не просто сканирует одну банку — он анализирует все ваши средства целиком. Роман Андреевич вычисляет опасные пересечения активов, показывает, каких шагов не хватает для идеальной кожи (например, базового крема или SPF) и шаг за шагом собирает для вас безупречную, безопасную систему ухода. Это ваша страховка от химических ожогов и выброшенных на ветер денег.\n\n"
-        "📦 <b>ГОТОВЫЙ УХОД</b>: Индивидуальный Бокс или PDF-протокол от создателя проекта."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
@@ -973,22 +970,30 @@ async def protocol_branch(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@dp.message(F.text == "📝 Забрать уход от Марии")
-async def offer_mariya_from_menu(message: types.Message, state: FSMContext):
+@dp.message(F.text == "💬 Задать вопрос Марии")
+async def ask_mariya_question(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(message.from_user.id)
     user_name = await _resolve_user_name(message, state, user)
+    tid = message.from_user.id
 
-    await send_client_card_to_admin(user)
+    try:
+        db.save_lead(
+            telegram_id=tid,
+            username=user.get("username") or "",
+            tags=user.get("user_tags", []),
+            photos=[]
+        )
+    except Exception:
+        pass
 
-    full_text = (
-        "Прекрасный выбор. Вы можете заказать у Марии:\n\n" + MARIA_TEXT +
-        "\n\nВыберите нужный формат ниже: PDF-протокол можно оплатить сразу, "
-        "а для заказа Бокса или консультации перейдите в личный диалог с Марией 👇"
-    )
+    text_q = f"Привет! У меня вопрос по уходу. Меня зовут: {user_name}. Код анкеты: #{tid}"
+    url_q = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_q)}"
+
     await message.answer(
-        full_text,
-        reply_markup=get_mariya_payment_keyboard(user_name, message.from_user.id),
-        parse_mode="HTML"
+        "Нажмите кнопку ниже — откроется личный диалог с Марией, она ответит на ваш вопрос по уходу.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Написать Марии", url=url_q)]
+        ])
     )
 
 
