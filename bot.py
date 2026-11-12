@@ -2294,6 +2294,19 @@ async def cmd_admin(message: types.Message):
 
 
 # =====================================================================
+# TEMP: логирование file_id входящих video_note (для сбора 3 видео)
+# =====================================================================
+
+@dp.message(F.video_note)
+async def _capture_video_note_id(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    fid = message.video_note.file_id
+    logger.info(f"🎥 VIDEO_NOTE FILE_ID: {fid}")
+    await message.answer(f"🎥 file_id:\n<code>{fid}</code>", parse_mode="HTML")
+
+
+# =====================================================================
 # ENTRY POINT
 # =====================================================================
 
