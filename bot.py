@@ -232,7 +232,7 @@ def get_user_tariff(user: dict) -> str:
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🔍 Проверить новое средство")],
-        [KeyboardButton(text="💬 Задать вопрос Марии")]
+        [KeyboardButton(text="📋 Меню")]
     ], resize_keyboard=True)
 
 
@@ -2195,6 +2195,137 @@ def _is_admin(user_id: int) -> bool:
 # =====================================================================
 # АДМИН-ПАНЕЛЬ /admin
 # =====================================================================
+
+# =====================================================================
+# МЕНЮ (📋) — Профиль / Тарифы / PDF / Бокс / Мария
+# =====================================================================
+
+@dp.message(F.text == "📋 Меню")
+async def menu_handler(message: types.Message, state: FSMContext):
+    user = db.get_or_create_user(message.from_user.id)
+    tid = message.from_user.id
+    user_name = db.get_user_name(tid) or "Клиент"
+
+    logger.info(f"📊 FUNNEL [menu_opened] user={tid}")
+
+    text_q = f"Привет, Мария! Вопрос по уходу. Меня зовут: {user_name}. Код анкеты: #{tid}"
+    url_q = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_q)}"
+
+    await message.answer(
+        "📋 <b>Меню</b>\n\nВыберите раздел:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👤 Профиль", callback_data="menu_profile"),
+                InlineKeyboardButton(text="💳 Тарифы", callback_data="show_tariffs"),
+            ],
+            [
+                InlineKeyboardButton(text="📄 PDF-протокол", callback_data="pay_pdf_4900"),
+                InlineKeyboardButton(text="📦 Бокс", callback_data="want_mariya_box"),
+            ],
+            [
+                InlineKeyboardButton(text="💬 Задать вопрос Марии", callback_data="menu_mariya"),
+            ],
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@dp.callback_query(F.data == "menu_profile")
+async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    telegram_id = callback.from_user.id
+    user = db.get_or_create_user(telegram_id)
+    user_name = db.get_user_name(telegram_id) or "Клиент"
+    tags_str = _translate_tags(user.get("user_tags", []))
+
+    if telegram_id in UNLIMITED_IDS:
+        count = db.count_approved_products(telegram_id)
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"👑 Режим: Безлимитный доступ (владелец)\n"
+            f"Одобренных средств в вашей схеме: {count} шт."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")]
+        ])
+        await callback.message.answer(text, reply_markup=kb)
+    elif not db.has_active_subscription(user):
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n"
+            f"Выберите тариф в меню /tariffs, чтобы включить сканер составов."
+        )
+        await callback.message.answer(text)
+    elif user.get("scanner_tariff") == "audit_1000":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Тариф: 💳 Аудит (Безлимитный сканер)\n"
+            f"Активен до: {exp_date}"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+        ])
+        await callback.message.answer(text, reply_markup=kb)
+    elif user.get("scanner_tariff") == "protocol_2500":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
+        count = db.count_approved_products(telegram_id)
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Тариф: 💎 Сборка протокола\n"
+            f"Активен до: {exp_date}\n"
+            f"Одобренных средств в вашей схеме: {count} шт."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")]
+        ])
+        await callback.message.answer(text, reply_markup=kb)
+    else:
+        await callback.message.answer("⚠️ Не удалось определить статус доступа.")
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "menu_mariya")
+async def menu_mariya(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    tid = callback.from_user.id
+    user = db.get_or_create_user(tid)
+    user_name = db.get_user_name(tid) or "Клиент"
+
+    try:
+        db.save_lead(
+            telegram_id=tid,
+            username=user.get("username") or "",
+            tags=user.get("user_tags", []),
+            photos=[]
+        )
+    except Exception:
+        pass
+
+    try:
+        await send_client_card_to_admin(user, log_lead=False)
+    except Exception:
+        pass
+
+    text_q = f"Привет, Мария! Вопрос по уходу. Меня зовут: {user_name}. Код анкеты: #{tid}"
+    url_q = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_q)}"
+
+    await callback.message.answer(
+        "💬 Напишите Марии напрямую — она косметолог проекта и поможет с вопросами, "
+        "которые выходят за рамки химического анализа.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Написать Марии", url=url_q)]
+        ])
+    )
+    await callback.answer()
+
 
 # =====================================================================
 # ENTRY POINT
