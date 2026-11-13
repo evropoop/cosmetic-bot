@@ -202,7 +202,6 @@ def get_start_keyboard():
 def get_path_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="go_scanner")],
-        [InlineKeyboardButton(text="🤷‍♀️ У меня сейчас нет ухода", callback_data="no_care")],
         [InlineKeyboardButton(text="💳 Посмотреть тарифы", callback_data="show_tariffs")] # <--- ДОБАВИЛИ
     ])
 
@@ -1439,16 +1438,13 @@ async def finish_survey(message: types.Message, state: FSMContext):
     
     await message.answer(diagnosis_text.strip())
 
-    # =========================================================
-    # Переход к выбору пути (НЕ диагноз — оставляем как было)
-    # =========================================================
     await message.answer(
         "Теперь нам нужно выстроить безопасный физиологичный уход. "
-        "Вы можете собрать его самостоятельно, проверяя каждое средство вместе со мной, Романом Андреевичем, "
-        "или сразу забрать готовую схему от Марии. Если у вас сейчас вообще нет ухода — мы выстроим его с чистого листа.",
-        reply_markup=get_path_keyboard()
+        "Найди свой крем на сайте Золотого Яблока или другого маркетплейса, "
+        "сделай скриншот раздела «Состав» или просто скопируй текст состава — как тебе удобнее.\n\n"
+        "Отправляй прямо сюда в чат, а мы с Романом всё расшифруем. Жду твою первую баночку!"
     )
-    await state.set_state(Form.waiting_for_composition)
+    await state.clear()
 
 
 @dp.callback_query(F.data == "go_scanner")
