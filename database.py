@@ -420,6 +420,7 @@ def update_user_subscription(telegram_id: int, tariff: str, days: int = 30):
     )
     conn.commit()
     conn.close()
+    return expires_at
 
 
 def has_active_subscription(user: dict) -> bool:
@@ -431,6 +432,51 @@ def has_active_subscription(user: dict) -> bool:
             except Exception:
                 return False
     return False
+
+
+# ================== RENEWAL ==================
+def schedule_renewal_notification(telegram_id: int, tariff_type: str, expires_at_iso: str):
+    """Планирует renewal_X за 24 часа до окончания подписки."""
+    renewal_type = "renewal_audit" if tariff_type == "audit_1000" else "renewal_protocol"
+    try:
+        expires_dt = datetime.fromisoformat(expires_at_iso)
+    except Exception:
+        return
+    # Не планируем если до окончания <25ч — напоминание бесполезно
+    if (expires_dt - datetime.now()).total_seconds() < 25 * 3600:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM scheduled_notifications WHERE telegram_id = ? AND notification_type IN ('renewal_audit', 'renewal_protocol') AND sent = 0",
+        (telegram_id,)
+    )
+    scheduled_at = expires_dt - timedelta(hours=24)
+    cursor.execute(
+        "INSERT INTO scheduled_notifications (telegram_id, notification_type, scheduled_at, created_at) VALUES (?, ?, ?, ?)",
+        (telegram_id, renewal_type, scheduled_at.isoformat(), datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+    print(f"📅 Renewal scheduled: {renewal_type} for {telegram_id} at {scheduled_at.isoformat()}")
+
+
+def has_pending_notifications(telegram_id: int) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM scheduled_notifications WHERE telegram_id = ? AND sent = 0", (telegram_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def get_last_scheduled_at(telegram_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(created_at) FROM scheduled_notifications WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
 
 
 # ================== FAIR USE ==================

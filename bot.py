@@ -134,11 +134,49 @@ def get_user_lock(user_id):
     return user_locks[user_id]
 
 
+def _reschedule_retention_for_user(telegram_id: int):
+    """Планирует retention/renewal если ещё нет pending. Учитывает подписку."""
+    try:
+        if telegram_id in UNLIMITED_IDS:
+            return
+        user = db.get_user(telegram_id)
+        if not user:
+            return
+        if user.get("maria_order_status") == "completed_vip":
+            return
+        if db.has_pending_notifications(telegram_id):
+            return
+
+        if db.has_active_subscription(user):
+            tariff = user.get("scanner_tariff")
+            exp = user.get("scanner_expires_at")
+            if tariff and exp:
+                db.schedule_renewal_notification(telegram_id, tariff, exp)
+                logger.info(f"📅 Renewal rescheduled for {telegram_id} ({tariff})")
+            return
+
+        # Отвальные — не чаще раза в 7 дней
+        last = db.get_last_scheduled_at(telegram_id)
+        if last:
+            try:
+                if (datetime.now() - datetime.fromisoformat(last)).days < 7:
+                    return
+            except Exception:
+                pass
+
+        db.schedule_retention_notifications(telegram_id)
+        logger.info(f"📅 Retention (13) scheduled for {telegram_id}")
+    except Exception as e:
+        logger.warning(f"Retention reschedule failed for {telegram_id}: {e}")
+
+
 class ActivityMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         try:
             if hasattr(event, "from_user") and event.from_user:
-                db.touch_user_activity(event.from_user.id)
+                uid = event.from_user.id
+                db.touch_user_activity(uid)
+                _reschedule_retention_for_user(uid)
         except Exception:
             pass
         return await handler(event, data)
@@ -578,6 +616,19 @@ async def retention_worker():
                         db.mark_notification_sent(n["id"])
                         continue
 
+                if notif_type.startswith("renewal_"):
+                    user = db.get_user(user_id)
+                    if user and db.has_active_subscription(user):
+                        exp = user.get("scanner_expires_at")
+                        if exp:
+                            try:
+                                exp_dt = datetime.fromisoformat(exp)
+                                if (exp_dt - datetime.now()).total_seconds() > 25 * 3600:
+                                    db.mark_notification_sent(n["id"])
+                                    continue
+                            except Exception:
+                                pass
+
                 last_activity = db.get_last_activity(user_id)
 
                 if notif_type not in ["renewal_audit", "renewal_protocol", "reactivation_30d", "reactivation_44d", "reactivation_75d"] and last_activity and delay > 0:
@@ -868,12 +919,13 @@ async def handle_payment_return(message: types.Message):
                 pass
         else:
             # ЭТО ПОДПИСКА (Аудит или Сборка протокола)
-            db.update_user_subscription(telegram_id, tariff_type, 30)
+            new_expires = db.update_user_subscription(telegram_id, tariff_type, 30)
+            db.cancel_retention_notifications(telegram_id)
+            db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
             await message.answer(
                 "🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\n"
                 "Проверьте свой профиль командой /profile."
             )
-            db.cancel_retention_notifications(telegram_id)
         
     except Exception as e:
         logger.error(f"Ошибка при возврате с оплаты: {e}")
