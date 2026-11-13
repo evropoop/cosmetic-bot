@@ -1042,10 +1042,18 @@ async def ask_mariya_question(message: types.Message, state: FSMContext):
 async def pay_pdf_4900(callback: types.CallbackQuery):
     link = await generate_prodamus_link(callback.from_user.id, 4900, "pdf_4900")
     await callback.message.answer(
+        "📄 <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного "
+        "PDF-руководства. Мария подберёт косметику строго под ваш бюджет, даст прямые "
+        "ссылки на покупку каждого средства и распишет понятную инструкцию (что и как "
+        "наносить утром и вечером). Вы покупаете всё сами по готовому списку. "
+        "Этот файл останется с вами как надёжная база: Мария добавит позиции на "
+        "перспективу, чтобы вы всегда знали, какими средствами дополнить и усилить "
+        "свой протокол.\n\n"
         "Для оплаты Персонального PDF-протокола (4 900 ₽) нажмите кнопку ниже:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
-        ])
+        ]),
+        parse_mode="HTML"
     )
     await callback.answer()
 
@@ -2003,7 +2011,7 @@ async def menu_handler(message: types.Message, state: FSMContext):
             ],
             [
                 InlineKeyboardButton(text="📄 PDF-протокол", callback_data="pay_pdf_4900"),
-                InlineKeyboardButton(text="📦 Бокс", callback_data="want_mariya_box"),
+                InlineKeyboardButton(text="📦 Бокс", callback_data="menu_box"),
             ],
             [
                 InlineKeyboardButton(text="💬 Задать вопрос Марии", callback_data="menu_mariya"),
@@ -2072,6 +2080,48 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
     else:
         await callback.message.answer("⚠️ Не удалось определить статус доступа.")
 
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "menu_box")
+async def menu_box(callback: types.CallbackQuery, state: FSMContext):
+    await safe_delete(callback.message)
+    tid = callback.from_user.id
+    user = db.get_or_create_user(tid)
+    user_name = db.get_user_name(tid) or "Клиент"
+
+    try:
+        db.save_lead(
+            telegram_id=tid,
+            username=user.get("username") or "",
+            tags=user.get("user_tags", []),
+            photos=[]
+        )
+    except Exception:
+        pass
+
+    try:
+        await send_client_card_to_admin(user, log_lead=False)
+    except Exception:
+        pass
+
+    text_box = f"Привет, хочу Индивидуальный Бокс (от 9 000 ₽)! Меня зовут: {user_name}. Код анкеты: #{tid}"
+    url_box = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_box)}"
+
+    await callback.message.answer(
+        "📦 <b>Индивидуальный Бокс (от 9 000 ₽)</b> — премиальный формат ухода «под ключ». "
+        "Вы приобретаете не просто набор косметики, а готовую систему — ваш личный "
+        "работающий протокол. Вы получаете эстетичную коробку с полноразмерными средствами, "
+        "подобранными строго под вашу кожу, и подробную инструкцию. В эту стоимость уже "
+        "включено ведение от Марии: она будет на связи, чтобы контролировать динамику и "
+        "довести вас до результата. Вам не нужно ходить по магазинам — забираете посылку "
+        "и начинаете свой путь к здоровой коже по протоколу.\n\n"
+        "Для консультации с Марией нажмите кнопку ниже:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📦 Заказать Индивидуальный Бокс", url=url_box)]
+        ]),
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 
