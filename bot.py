@@ -144,8 +144,60 @@ class ActivityMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+class FunnelMiddleware(BaseMiddleware):
+    """Логирует каждое сообщение/callback с текущим FSM state — для анализа воронки."""
+    async def __call__(self, handler, event, data):
+        try:
+            state: FSMContext = data.get("state")
+            current_state = await state.get_state() if state else None
+
+            user_id = None
+            event_type = "unknown"
+            preview = ""
+            extra = ""
+
+            if hasattr(event, "from_user") and event.from_user:
+                user_id = event.from_user.id
+
+            if isinstance(event, types.Message):
+                event_type = "message"
+                if event.photo:
+                    preview = "[PHOTO]"
+                elif event.text:
+                    preview = event.text[:80].replace("\n", " ")
+            elif isinstance(event, types.CallbackQuery):
+                event_type = "callback"
+                preview = event.data or ""
+                # Метка шага опроса
+                m = re.match(r'q_(\d+)_', preview)
+                if m:
+                    extra = f" [survey_step={m.group(1)}]"
+                elif preview == "start_diagnostics":
+                    extra = " [start_survey]"
+                elif preview.startswith("cat_"):
+                    extra = " [category_chosen]"
+                elif preview.startswith("pay_"):
+                    extra = " [payment_click]"
+                elif preview.startswith("save_product"):
+                    extra = " [save_product]"
+                elif preview.startswith("skip_product"):
+                    extra = " [skip_product]"
+
+            if user_id:
+                state_short = str(current_state).replace("Form:", "") if current_state else "None"
+                logger.info(
+                    f"📊 FUNNEL{extra}: user={user_id} | {event_type} | state={state_short} | data={preview!r}"
+                )
+        except Exception as e:
+            logger.debug(f"FunnelMiddleware error: {e}")
+
+        return await handler(event, data)
+
+
 dp.message.middleware(ActivityMiddleware())
 dp.callback_query.middleware(ActivityMiddleware())
+dp.message.middleware(FunnelMiddleware())
+dp.callback_query.middleware(FunnelMiddleware())
 
 ANALYZABLE_STATUSES = {"bad", "hidden_threat", "conditional", "good", "neutral", "hydrophilic"}
 
@@ -249,6 +301,7 @@ WARMUP_TEXT = (
 
 
 async def send_paywall(message: types.Message):
+    logger.info(f"📊 FUNNEL [paywall_shown] user={message.from_user.id}")
     await message.answer(
         PAYWALL_TEXT,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1067,6 +1120,7 @@ async def start_diagnostics(callback: types.CallbackQuery, state: FSMContext):
     db.clear_user_tags(telegram_id)
     await state.clear()
     await state.set_state(Form.waiting_for_name)
+    logger.info(f"📊 FUNNEL [survey_started] user={telegram_id}")
     await state.update_data(step_contrib={})
     await callback.message.answer(
         "Для начала напишите, как к вам обращаться:",
@@ -1436,13 +1490,14 @@ async def finish_survey(message: types.Message, state: FSMContext):
             )
     # === END БЛОК 4 ===
     
+    logger.info(f"📊 FUNNEL [diagnostics_complete] user={telegram_id}")
     await message.answer(diagnosis_text.strip())
 
     await message.answer(
         "Теперь нам нужно выстроить безопасный физиологичный уход. "
         "Найди свой крем на сайте Золотого Яблока или другого маркетплейса, "
         "сделай скриншот раздела «Состав» или просто скопируй текст состава — как тебе удобнее.\n\n"
-        "Отправляй прямо сюда в чат, а мы с Романом всё расшифруем. Жду твою первую баночку!"
+        "Отправляй прямо сюда в чат, а мы с Романом всё расшифруем. Жду твою первую баночку! 👇"
     )
     await state.clear()
 
@@ -1467,6 +1522,7 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
     telegram_id = user["telegram_id"]
     user_name = await _resolve_user_name(message, state, user)
 
+    logger.info(f"📊 FUNNEL [analysis_start] user={telegram_id} | cat={category} | len={len(composition)}")
     # 🔒 Жёсткая очистка контекста между анализами — чтобы старые составы/категории не протекали
     await state.update_data(pending_inci=None, photo_urls=[], category=None)
     logger.info(f"🧹 STATE CLEARED before analysis: user={telegram_id}, category={category!r}, comp_len={len(composition)}")
@@ -1954,6 +2010,7 @@ async def handle_text_no_state(message: types.Message, state: FSMContext):
         )
         return
 
+    logger.info(f"📊 FUNNEL [composition_sent_text] user={telegram_id} | len={len(composition)}")
     await state.update_data(pending_inci=composition)
     await message.answer(
         "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
@@ -2004,6 +2061,7 @@ async def handle_photo_no_state(message: types.Message, state: FSMContext):
         )
         return
 
+    logger.info(f"📊 FUNNEL [composition_sent_photo] user={telegram_id} | ocr_len={len(extracted_text)}")
     await state.update_data(pending_inci=extracted_text)
     await loading_msg.edit_text(
         "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
