@@ -1621,7 +1621,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
         "📋 <b>Пример состава:</b>\n"
         "<code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
         "Название средства писать <b>не нужно</b> — только список компонентов. "
-        "Жду твою первую баночку! 👇",
+        "ВИДЕО ИНСТРУКЦИЯ КАК ЭТО СДЕЛАТЬ НИЖЕ 👇",
         parse_mode="HTML"
     )
 
@@ -1814,6 +1814,13 @@ async def process_category_choice(callback: types.CallbackQuery, state: FSMConte
         await state.update_data(pending_inci=None)
         await callback.message.answer("Категория выбрана. Приступаю к анализу!")
         await perform_analysis(callback.message, state, user, pending_inci, cat_type)
+    elif data.get("photo_urls"):
+        await callback.message.answer(
+            "✅ Категория выбрана.\n\nНажмите «Анализировать», чтобы запустить анализ.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
+            ])
+        )
     else:
         await callback.message.answer(
             "Категория выбрана. Отправьте фотографию состава (четкое фото этикетки или скриншот из интернет-магазина) "
@@ -1837,10 +1844,6 @@ async def process_photo_composition(message: types.Message, state: FSMContext):
     user = db.get_or_create_user(telegram_id)
     data = await state.get_data()
     category_fsm = data.get("category", None)
-
-    if not category_fsm:
-        await message.answer("⚠️ Сначала выберите категорию средства.", reply_markup=get_category_4_keyboard())
-        return
 
     if not check_user_limits(user):
         db.schedule_retention_notifications(telegram_id)
@@ -1975,6 +1978,15 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
                 "без обрезанных краев (либо скопируйте состав текстом из карточки товара).\n\n"
                 "Ваша попытка не списалась!"
             )
+            return
+
+        if not category_fsm:
+            await state.update_data(pending_inci=extracted_text, photo_urls=[])
+            await loading_msg.edit_text(
+                "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
+                reply_markup=get_category_4_keyboard()
+            )
+            await state.set_state(Form.waiting_for_category)
             return
 
         db.log_scan(telegram_id)
@@ -2366,26 +2378,17 @@ async def handle_photo_no_state(message: types.Message, state: FSMContext):
         await message.answer("❌ Не удалось загрузить фото. Попробуйте ещё раз.")
         return
 
-    loading_msg = await message.answer("🔍 Распознаю текст с фотографии...")
-    extracted_text = await extract_text_from_photos([b64])
+    await state.update_data(photo_urls=[b64])
+    logger.info(f"📊 FUNNEL [composition_sent_photo] user={telegram_id} | photos=1")
 
-    if not validate_inci_text(extracted_text):
-        await loading_msg.edit_text(
-            "Не удалось распознать полный список компонентов (INCI).\n\n"
-            "Пожалуйста, убедитесь, что на фото четко виден текст после слова Состав / Ingredients "
-            "без обрезанных краев (либо скопируйте состав текстом из карточки товара).\n\n"
-            "Ваша попытка не списалась!"
-        )
-        return
-
-    logger.info(f"📊 FUNNEL [composition_sent_photo] user={telegram_id} | ocr_len={len(extracted_text)}")
-    await state.update_data(pending_inci=extracted_text)
-    await loading_msg.edit_text(
-        "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
-        reply_markup=get_category_4_keyboard()
+    await message.answer(
+        "📸 Фото добавлено.\n\n"
+        "Можете отправить ещё фото или нажмите «Анализировать».",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
+        ])
     )
-    await state.set_state(Form.waiting_for_category)
-
+    await state.set_state(Form.waiting_for_composition)
 
 @dp.message(F.video | F.voice | F.audio | F.sticker | F.document)
 async def reject_other_media_no_state(message: types.Message, state: FSMContext):
