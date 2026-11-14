@@ -41,7 +41,8 @@ PRODAMUS_SYS = os.getenv("PRODAMUS_SYS")
 
 UNLIMITED_IDS = [1962088357, 7875791813]  # Owner + Мария (полные права)
 
-CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
+CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAI0Mmr4ouA2EcZwkhbQEO0KFGP0YpuGAAOwAALBxMFLbVqZ52ULses9BA"
+MAIN_VIDEO_ID = "BAACAgIAAxkBAAI0M2r4ouqOXeD9ZV7gsHOXQFtsra3oAAJMqgAC-23AS3ciA71KEYgfPQQ"
 
 OFFER_URL = "https://docs.google.com/document/d/1FOaPp-S5rpJSlg2qWukQ3cyBCjxhEbfd0LCLaM4gE08/edit?usp=sharing"
 CONSENT_URL = "https://docs.google.com/document/d/1OzOPwWki-_hdjY30R0A9Wp3xsdBGvrlnNPRT-IhgynA/edit?usp=sharing"
@@ -1623,6 +1624,12 @@ async def finish_survey(message: types.Message, state: FSMContext):
         "Жду твою первую баночку! 👇",
         parse_mode="HTML"
     )
+
+    try:
+        await message.answer_video(video=MAIN_VIDEO_ID)
+    except Exception as e:
+        logger.warning(f"Не удалось отправить основное видео ({e})")
+
     await state.clear()
 
 
@@ -2509,20 +2516,6 @@ def _is_admin(user_id: int) -> bool:
 # =====================================================================
 # МЕНЮ (📋) — Профиль / Тарифы / PDF / Бокс / Мария
 # =====================================================================
-
-
-@dp.message(F.video_note)
-async def catch_video_note(message: types.Message):
-    fid = message.video_note.file_id
-    logger.info(f"🎬 VIDEO_NOTE file_id: {fid}")
-    await message.answer(f"🎬 <b>VIDEO_NOTE file_id:</b>\n<code>{fid}</code>", parse_mode="HTML")
-
-
-@dp.message(F.video)
-async def catch_video(message: types.Message):
-    fid = message.video.file_id
-    logger.info(f"🎬 VIDEO file_id: {fid}")
-    await message.answer(f"🎬 <b>VIDEO file_id:</b>\n<code>{fid}</code>", parse_mode="HTML")
 
 
 # =====================================================================
