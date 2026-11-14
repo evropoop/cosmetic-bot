@@ -39,7 +39,7 @@ PRODAMUS_URL = os.getenv("PRODAMUS_URL")
 PRODAMUS_SECRET = os.getenv("PRODAMUS_SECRET")
 PRODAMUS_SYS = os.getenv("PRODAMUS_SYS")
 
-UNLIMITED_IDS = [1962088357]  # Единственный аккаунт с безлимитом
+UNLIMITED_IDS = [1962088357, 7875791813]  # Owner + Мария (полные права)
 
 CIRCLE_VIDEO_ID = "DQACAgIAAxkBAAIBM2rH78dR-IOML_w1nFX_c4uneVzeAALEpQAC4NRASuj2IqXHtc6tPQQ"
 
