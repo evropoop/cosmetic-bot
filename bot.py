@@ -1189,6 +1189,57 @@ async def start_diagnostics(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# =====================================================================
+# Перехват кнопок Меню/Проверить во время анкеты — НЕ сбрасывают state
+# =====================================================================
+
+SURVEY_STATES = (
+    Form.waiting_for_name,
+    Form.survey,
+    Form.waiting_for_medicine,
+    Form.waiting_for_allergy,
+    Form.waiting_for_category,
+)
+
+
+@dp.message(StateFilter(*SURVEY_STATES), F.text == "📋 Меню")
+async def menu_while_in_survey(message: types.Message, state: FSMContext):
+    await menu_handler(message, state)
+    current = await state.get_state()
+    if current == Form.waiting_for_name.state:
+        await message.answer("👆 Введите имя буквами (без цифр), чтобы продолжить анкету:")
+    elif current == Form.survey.state:
+        await message.answer("👆 Вернёмся к анкете — выберите ответ ниже:")
+    elif current == Form.waiting_for_medicine.state:
+        await message.answer("👆 Напишите ваш вариант текстом:")
+    elif current == Form.waiting_for_allergy.state:
+        await message.answer("👆 Напишите название аллергена текстом:")
+    elif current == Form.waiting_for_category.state:
+        await message.answer(
+            "👆 Выберите категорию средства:",
+            reply_markup=get_category_4_keyboard()
+        )
+    logger.info(f"📊 FUNNEL [menu_during_survey] user={message.from_user.id} | state={current}")
+
+
+@dp.message(StateFilter(*SURVEY_STATES), F.text == "🔍 Проверить новое средство")
+async def scanner_while_in_survey(message: types.Message, state: FSMContext):
+    current = await state.get_state()
+    await message.answer(
+        "👆 Сначала завершим анкету — она нужна, чтобы я понимал вашу кожу.\n\n"
+        "Продолжим, где остановились?"
+    )
+    if current == Form.waiting_for_name.state:
+        await message.answer("Введите имя буквами (без цифр):")
+    elif current == Form.waiting_for_medicine.state:
+        await message.answer("Напишите ваш вариант текстом:")
+    elif current == Form.waiting_for_allergy.state:
+        await message.answer("Напишите название аллергена текстом:")
+    elif current == Form.waiting_for_category.state:
+        await message.answer("Выберите категорию:", reply_markup=get_category_4_keyboard())
+    logger.info(f"📊 FUNNEL [scanner_blocked_during_survey] user={message.from_user.id} | state={current}")
+
+
 @dp.message(StateFilter(Form.waiting_for_name))
 async def process_name(message: types.Message, state: FSMContext):
     name = sanitize_name(message.text or "")
@@ -1554,10 +1605,15 @@ async def finish_survey(message: types.Message, state: FSMContext):
     await message.answer(diagnosis_text.strip())
 
     await message.answer(
-        "Теперь нам нужно выстроить безопасный физиологичный уход. "
-        "Найди свой крем на сайте Золотого Яблока или другого маркетплейса, "
-        "сделай скриншот раздела «Состав» или просто скопируй текст состава — как тебе удобнее.\n\n"
-        "Отправляй прямо сюда в чат, а мы с Романом всё расшифруем. Жду твою первую баночку! 👇"
+        "Теперь нам нужно выстроить безопасный физиологичный уход.\n\n"
+        "Найди свой крем на сайте Золотого Яблока или другого маркетплейса — "
+        "нужен раздел «Состав» (INCI), а не название средства. "
+        "Сфотографируй мелкий шрифт на упаковке или скопируй текст состава из карточки товара.\n\n"
+        "📋 <b>Пример состава:</b>\n"
+        "<code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
+        "Название средства писать <b>не нужно</b> — только список компонентов. "
+        "Жду твою первую баночку! 👇",
+        parse_mode="HTML"
     )
     await state.clear()
 
@@ -1893,6 +1949,11 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
         extracted_text = await extract_text_from_photos(photo_urls)
 
         if not validate_inci_text(extracted_text):
+            logger.info(
+                f"📊 FUNNEL [composition_rejected] user={telegram_id} | "
+                f"src=analyze_photos | ocr_len={len(extracted_text)} | "
+                f"text={extracted_text[:60]!r}"
+            )
             await loading_msg.edit_text(
                 "Не удалось распознать полный список компонентов (INCI).\n\n"
                 "Пожалуйста, убедитесь, что на фото четко виден текст после слова Состав / Ingredients "
@@ -2032,6 +2093,11 @@ async def process_composition(message: types.Message, state: FSMContext):
     composition = sanitize_input(message.text or "", max_len=2000)
 
     if not validate_inci_text(composition):
+        logger.info(
+            f"📊 FUNNEL [composition_rejected] user={telegram_id} | "
+            f"src=process_composition | len={len(composition)} | "
+            f"text={composition[:60]!r}"
+        )
         await message.answer(
             "Не удалось распознать полный список компонентов (INCI).\n\n"
             "Пожалуйста, убедитесь, что текст содержит список ингредиентов после слова Состав / Ingredients, "
@@ -2233,6 +2299,11 @@ async def handle_text_no_state(message: types.Message, state: FSMContext):
 
     composition = sanitize_input(message.text or "", max_len=2000)
     if not validate_inci_text(composition):
+        logger.info(
+            f"📊 FUNNEL [composition_rejected] user={telegram_id} | "
+            f"src=handle_text_no_state | len={len(composition)} | "
+            f"text={composition[:60]!r}"
+        )
         await message.answer(
             "Не удалось распознать полный список компонентов (INCI).\n\n"
             "Пожалуйста, убедитесь, что текст содержит список ингредиентов после слова Состав / Ingredients, "
