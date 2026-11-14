@@ -2511,6 +2511,20 @@ def _is_admin(user_id: int) -> bool:
 # =====================================================================
 
 
+@dp.message(F.video_note)
+async def catch_video_note(message: types.Message):
+    fid = message.video_note.file_id
+    logger.info(f"🎬 VIDEO_NOTE file_id: {fid}")
+    await message.answer(f"🎬 <b>VIDEO_NOTE file_id:</b>\n<code>{fid}</code>", parse_mode="HTML")
+
+
+@dp.message(F.video)
+async def catch_video(message: types.Message):
+    fid = message.video.file_id
+    logger.info(f"🎬 VIDEO file_id: {fid}")
+    await message.answer(f"🎬 <b>VIDEO file_id:</b>\n<code>{fid}</code>", parse_mode="HTML")
+
+
 # =====================================================================
 # ENTRY POINT
 # =====================================================================
