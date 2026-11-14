@@ -200,7 +200,11 @@ class FunnelMiddleware(BaseMiddleware):
             if isinstance(event, types.Message):
                 event_type = "message"
                 if event.photo:
-                    preview = "[PHOTO]"
+                    preview = f"[PHOTO file_id={event.photo[-1].file_id}]"
+                elif event.video_note:
+                    preview = f"[VIDEO_NOTE file_id={event.video_note.file_id}]"
+                elif event.video:
+                    preview = f"[VIDEO file_id={event.video.file_id}]"
                 elif event.text:
                     preview = event.text[:80].replace("\n", " ")
             elif isinstance(event, types.CallbackQuery):
@@ -962,7 +966,11 @@ async def cmd_start(message: types.Message, state: FSMContext):
     try:
         await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
     except Exception as e:
-        logger.error(f"Не удалось отправить кружок: {e}")
+        logger.warning(f"Не удалось отправить кружок ({e}) — fallback на текст")
+        try:
+            await message.answer("👋 Добро пожаловать! Нажмите СТАРТ ниже — запустим диагностику.")
+        except Exception:
+            pass
 
     # 👑 UNLIMITED + анкета уже пройдена — даём выбор: перепройти или сканировать
     if telegram_id in UNLIMITED_IDS and user.get("survey_done", 0) == 1:
