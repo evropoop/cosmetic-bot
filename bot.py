@@ -440,7 +440,9 @@ RETENTION_TEXTS = {
     "180d": "🤖 {user_name}, прошло ровно полгода с момента вашей регистрации. За это время вы нанесли на лицо десятки составов вслепую. Я технически завершаю ваш сеанс и переношу данные в глубокий архив. Если решите выстроить по-настоящему безопасный, физиологичный уход — активируйте тариф или закажите готовый бокс от Марии. Двери лаборатории всегда открыты.",
 
     # === ПОДПИСОЧНЫЕ (планируются при оплате, не входят в retention-воронку) ===
-    "renewal_audit": "🤖 {user_name}, завтра ваш доступ к сканирующему модулю закрывается.\nНе покупайте новые средства вслепую. Одно средство с жесткими ПАВами или комедогенной базой может спровоцировать воспаление и откатить результаты назад. Продлите «Аудит», чтобы я продолжил жестко фильтровать ваши покупки.\n⬆️ Или перейдите на следующий уровень: выберите «Сборку протокола». Я включу интеллектуальную память, запомню все ваши средства и выстрою из них единую безопасную систему.",
+    "no_composition_6h": "🤖 {user_name}, я вижу, вы прошли диагностику, но ещё не проверили ни одного средства.\n\nБез проверки первого состава я не могу сказать ничего конкретного о вашей реальной коже. Пришлите состав любого крема (например, того, что сейчас на полке) — это займёт 30 секунд. Я разберу его и покажу, что в нём скрыто.",
+
+        "renewal_audit": "🤖 {user_name}, завтра ваш доступ к сканирующему модулю закрывается.\nНе покупайте новые средства вслепую. Одно средство с жесткими ПАВами или комедогенной базой может спровоцировать воспаление и откатить результаты назад. Продлите «Аудит», чтобы я продолжил жестко фильтровать ваши покупки.\n⬆️ Или перейдите на следующий уровень: выберите «Сборку протокола». Я включу интеллектуальную память, запомню все ваши средства и выстрою из них единую безопасную систему.",
     "renewal_protocol": "🤖 {user_name}, наш месяц работы подходит к концу. За 28–35 дней эпидермис проходит полный цикл обновления. Завтра ваш доступ к алгоритму закрывается.\nДавайте подведем итоги. Отметьте ниже этапы ухода, которые мы с вами уже успели закрыть безопасными, одобренными средствами:",
     "reactivation_30d": "🤖 {user_name}, срок вашего доступа истек. Сканирующий модуль отключен. Ваша текущая архитектура ухода сохранена и переведена в архив. Когда потребуется выбрать новые средства — алгоритм будет готов распаковать архив и проверить составы.",
     "reactivation_44d": "🤖 {user_name}, если самостоятельный подбор отнимает слишком много времени — снимите с себя эту задачу. Создатель алгоритма, Мария, собирает Индивидуальные Боксы вручную. Вы получаете готовую систему без необходимости вникать в химию.",
@@ -454,7 +456,8 @@ RETENTION_DELAYS = {
     "90d": 7776000, "120d": 10368000, "150d": 12960000, "180d": 15552000,
     # Подписочные — без задержки (0), планируются через schedule_single_notification
     "renewal_audit": 0, "renewal_protocol": 0,
-    "reactivation_30d": 0, "reactivation_44d": 0, "reactivation_75d": 0
+    "reactivation_30d": 0, "reactivation_44d": 0, "reactivation_75d": 0,
+    "no_composition_6h": 6 * 3600  # 6 часов после анкеты
 }
 
 
@@ -574,6 +577,11 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
             [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
             [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
         ])
+    elif notif_type == "no_composition_6h":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="go_scanner")],
+            [InlineKeyboardButton(text="💳 Посмотреть тарифы", callback_data="show_tariffs")]
+        ])
     elif notif_type == "renewal_audit":
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Продлить Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
@@ -636,7 +644,7 @@ async def retention_worker():
 
                 last_activity = db.get_last_activity(user_id)
 
-                if notif_type not in ["renewal_audit", "renewal_protocol", "reactivation_30d", "reactivation_44d", "reactivation_75d"] and last_activity and delay > 0:
+                if notif_type not in ["renewal_audit", "renewal_protocol", "reactivation_30d", "reactivation_44d", "reactivation_75d", "no_composition_6h"] and last_activity and delay > 0:
                     elapsed = (datetime.now() - last_activity).total_seconds()
                     if elapsed < delay:
                         new_time = last_activity + timedelta(seconds=delay)
@@ -1613,22 +1621,43 @@ async def finish_survey(message: types.Message, state: FSMContext):
     logger.info(f"📊 FUNNEL [diagnostics_complete] user={telegram_id}")
     await message.answer(diagnosis_text.strip())
 
+    await asyncio.sleep(0.5)
     await message.answer(
-        "Теперь нам нужно выстроить безопасный физиологичный уход.\n\n"
-        "Найди свой крем на сайте Золотого Яблока или другого маркетплейса — "
-        "нужен раздел «Состав» (INCI), а не название средства. "
-        "Сфотографируй мелкий шрифт на упаковке или скопируй текст состава из карточки товара.\n\n"
-        "📋 <b>Пример состава:</b>\n"
-        "<code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
-        "Название средства писать <b>не нужно</b> — только список компонентов. "
-        "ВИДЕО ИНСТРУКЦИЯ КАК ЭТО СДЕЛАТЬ НИЖЕ 👇",
+        "✅ <b>Диагностика завершена.</b>\n\n"
+        "Теперь проверьте свой первый крем — это займёт 30 секунд 👇",
+        parse_mode="HTML"
+    )
+
+    await asyncio.sleep(0.5)
+    await message.answer(
+        "<b>Что делать сейчас:</b>\n"
+        "1. Открой карточку своего крема на Золотом Яблоке, Ozon или WB\n"
+        "2. Найди раздел «Состав» / «Ingredients» (мелкий шрифт на упаковке)\n"
+        "3. Сфотографируй или скопируй список компонентов\n"
+        "4. Отправь сюда в чат\n\n"
+        "📋 <b>Пример:</b> <code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
+        "Название средства писать <b>не нужно</b> — только список INCI.\n\n"
+        "🎬 <b>Видео-инструкция ниже 👇</b>",
         parse_mode="HTML"
     )
 
     try:
         await message.answer_video(video=MAIN_VIDEO_ID)
+    except NameError:
+        logger.warning("MAIN_VIDEO_ID не определён — видео не отправлено")
     except Exception as e:
         logger.warning(f"Не удалось отправить основное видео ({e})")
+
+    try:
+        from datetime import timedelta as _td
+        db.schedule_single_notification(
+            telegram_id,
+            "no_composition_6h",
+            datetime.now() + _td(hours=6)
+        )
+        logger.info(f"📅 no_composition_6h scheduled for {telegram_id}")
+    except Exception as e:
+        logger.warning(f"no_composition_6h schedule failed: {e}")
 
     await state.clear()
 
@@ -1724,6 +1753,11 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
                 record_id = db.save_approved_product(telegram_id, composition, status, category, stage, actives)
 
             db.save_analysis(telegram_id, composition, clean_text, status)
+            await state.clear()
+            try:
+                db.cancel_single_notification(telegram_id, "no_composition_6h")
+            except Exception:
+                pass
 
             if status in ["bad", "hidden_threat"]:
                 db.increment_bad_bottles(telegram_id)
@@ -2030,6 +2064,11 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
             record_id = db.save_approved_product(telegram_id, f"[ФОТО] {extracted_text[:100]}...", status, category, stage, actives)
 
         db.save_analysis(telegram_id, f"[ФОТО] {extracted_text[:100]}...", clean_text, status)
+        await state.clear()
+        try:
+            db.cancel_single_notification(telegram_id, "no_composition_6h")
+        except Exception:
+            pass
 
         if status in ["bad", "hidden_threat"]:
             db.increment_bad_bottles(telegram_id)
