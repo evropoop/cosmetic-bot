@@ -307,7 +307,7 @@ def get_path_keyboard():
 async def show_tariffs_cb(callback: types.CallbackQuery, state: FSMContext):
     await safe_delete(callback.message)
     # Вызываем ту самую функцию, которая отправляет текст тарифов
-    await cmd_tariffs(callback.message)
+    await cmd_tariffs(callback.message, state)
     await callback.answer()
 
 
@@ -861,6 +861,7 @@ async def handle_scanner_entry(message: types.Message, state: FSMContext, user: 
 
 @dp.message(F.text == "/profile")
 async def cmd_profile(message: types.Message, state: FSMContext):
+    await state.clear()
     telegram_id = message.from_user.id
     user = db.get_or_create_user(telegram_id)
     user_name = db.get_user_name(telegram_id) or "Клиент"
@@ -979,7 +980,9 @@ async def handle_back_to_profile(callback: types.CallbackQuery, state: FSMContex
 
 
 @dp.message(F.text == "/tariffs")
-async def cmd_tariffs(message: types.Message):
+async def cmd_tariffs(message: types.Message, state: FSMContext = None):
+    if state:
+        await state.clear()
     text = (
         "🤖 Роман Андреевич: Выберите формат работы:\n\n"
         "💳 <b>БАЗОВЫЙ АУДИТ (1000 ₽ / 30 дней)</b>\n"
@@ -1070,6 +1073,7 @@ async def handle_payment_return(message: types.Message):
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
     telegram_id = message.from_user.id
     username = message.from_user.username
     user = db.get_or_create_user(telegram_id, username)
