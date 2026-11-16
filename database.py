@@ -42,7 +42,8 @@ def init_db():
     cursor.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in cursor.fetchall()]
     for col in ["medical_note", "free_scans_used", "scanner_tariff", "scanner_expires_at",
-                "scans_today", "scans_month", "maria_order_status", "last_activity_at"]:
+                "scans_today", "scans_month", "maria_order_status", "last_activity_at",
+                "channel_kicked_at"]:
         if col not in columns:
             cursor.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
 
@@ -540,6 +541,46 @@ def save_lead(telegram_id: int, username: str, tags: list, photos: list):
     conn.close()
 
 
+# ================== CHANNEL ACCESS ==================
+def get_expired_subscriptions():
+    """Telegram IDs с истёкшей подпиской, которых ещё не кикали."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    cursor.execute("""
+        SELECT telegram_id FROM users
+        WHERE scanner_expires_at IS NOT NULL
+          AND scanner_expires_at < ?
+          AND (channel_kicked_at IS NULL OR channel_kicked_at < scanner_expires_at)
+    """, (now,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def mark_channel_kicked(telegram_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET channel_kicked_at = ? WHERE telegram_id = ?",
+        (datetime.now().isoformat(), telegram_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_channel_kicked(telegram_id: int):
+    """Сброс флага кика при оплате/продлении."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET channel_kicked_at = NULL WHERE telegram_id = ?",
+        (telegram_id,)
+    )
+    conn.commit()
+    conn.close()
+
+
 # ================== RETENTION ==================
 def schedule_retention_notifications(telegram_id: int):
     conn = get_connection()
@@ -628,6 +669,17 @@ def schedule_single_notification(telegram_id: int, notif_type: str, when: dateti
     cursor.execute(
         "INSERT INTO scheduled_notifications (telegram_id, notification_type, scheduled_at, created_at) VALUES (?, ?, ?, ?)",
         (telegram_id, notif_type, when.isoformat(), datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def cancel_single_notification(telegram_id: int, notif_type: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM scheduled_notifications WHERE telegram_id = ? AND notification_type = ? AND sent = 0",
+        (telegram_id, notif_type)
     )
     conn.commit()
     conn.close()
