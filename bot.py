@@ -35,6 +35,8 @@ OWNER_ID = int(os.getenv("OWNER_ID", 1745568601))
 MARIYA_ID = int(os.getenv("MARIYA_ID", 7875791813))
 ADMIN_ID = int(os.getenv("ADMIN_ID", MARIYA_ID))
 
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
+
 PRODAMUS_URL = os.getenv("PRODAMUS_URL")
 PRODAMUS_SECRET = os.getenv("PRODAMUS_SECRET")
 PRODAMUS_SYS = os.getenv("PRODAMUS_SYS")
@@ -613,6 +615,110 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
         logger.warning(f"Не удалось отправить уведомление {notif_type} юзеру {telegram_id}: {e}")
 
 
+async def grant_channel_access(user_id: int, tariff_label: str, expires_at):
+    """Одноразовая ссылка в закрытый канал / подтверждение продления."""
+    if not CHANNEL_ID:
+        logger.warning(f"CHANNEL_ID=0, skip grant for {user_id}")
+        return
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        is_member = member.status in ("member", "administrator", "creator")
+    except Exception:
+        is_member = False
+
+    if is_member:
+        try:
+            await bot.send_message(
+                user_id,
+                f"✅ Оплата получена. Подписка «{tariff_label}» продлена до "
+                f"{expires_at.strftime('%d.%m.%Y')}. Доступ в клуб сохранён."
+            )
+            logger.info(f"✅ Channel renewed (already member): {user_id}")
+        except Exception as e:
+            logger.warning(f"send_message to {user_id} failed: {e}")
+        return
+
+    # Не в канале → разбанить (если был кикнут) + новая одноразовая ссылка
+    try:
+        await bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+    except Exception:
+        pass
+
+    try:
+        _ts = int(expires_at.timestamp()) + 86400  # +1 день буфер
+        invite = await bot.create_chat_invite_link(
+            chat_id=CHANNEL_ID,
+            member_limit=1,
+            expire_date=_ts,
+            name=f"{tariff_label}-{user_id}"
+        )
+    except Exception as e:
+        logger.error(f"❌ create_chat_invite_link failed for {user_id}: {e}")
+        try:
+            await bot.send_message(
+                user_id,
+                "⚠️ Оплата получена, но ссылку в клуб создать не удалось. Напишите администратору."
+            )
+        except Exception:
+            pass
+        return
+
+    text = (
+        f"🎉 Оплата «{tariff_label}» получена! Доступ активирован до "
+        f"{expires_at.strftime('%d.%m.%Y')}.\n\n"
+        f"👑 Ваша персональная ссылка в закрытый клуб (одноразовая):\n"
+        f"{invite.invite_link}\n\n"
+        f"Ссылка действует до окончания подписки. Не передавайте её другим."
+    )
+    try:
+        await bot.send_message(user_id, text)
+        logger.info(f"✅ Channel invite sent to {user_id}")
+    except Exception as e:
+        logger.error(f"❌ send invite to {user_id} failed: {e}")
+
+
+async def channel_worker():
+    """Раз в час кикает пользователей с истёкшей подпиской из закрытого канала."""
+    logger.info("⏰ Channel-воркер запущен")
+    while True:
+        try:
+            expired = db.get_expired_subscriptions()
+            for tid in expired:
+                # Двойная проверка: продлил ли в последний момент?
+                fresh = db.get_user(tid)
+                if fresh and fresh.get("scanner_expires_at"):
+                    try:
+                        exp = datetime.fromisoformat(fresh["scanner_expires_at"])
+                        if exp > datetime.now():
+                            logger.info(f"⏭ {tid} renewed before kick, skip")
+                            db.clear_channel_kicked(tid)
+                            continue
+                    except Exception:
+                        pass
+
+                if not CHANNEL_ID:
+                    continue
+
+                try:
+                    await bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=tid, revoke_messages=False)
+                    await bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=tid)
+                    db.mark_channel_kicked(tid)
+                    logger.info(f"🚪 Kicked expired user {tid} from channel")
+                    try:
+                        await bot.send_message(
+                            tid,
+                            "⏰ Ваша подписка истекла. Доступ в закрытый клуб закрыт.\n"
+                            "Продлить и вернуться: /tariffs"
+                        )
+                    except Exception:
+                        pass
+                except Exception as e:
+                    logger.warning(f"Failed to kick {tid}: {e}")
+        except Exception as e:
+            logger.error(f"Channel worker error: {e}")
+        await asyncio.sleep(3600)
+
+
 async def retention_worker():
     logger.info("⏰ Retention-воркер запущен")
     while True:
@@ -906,11 +1012,13 @@ async def handle_payment_return(message: types.Message):
         _AMOUNT_MAP = {"pdf_4900": 4900, "audit_1000": 1000, "protocol_2500": 2500}
         _amount = _AMOUNT_MAP.get(tariff_type, 0)
         db.save_payment(order_id, telegram_id, _amount, tariff_type)
+        db.clear_channel_kicked(telegram_id)  # universal for all tariffs
         
         if tariff_type == "pdf_4900":
-            # ЭТО РАЗОВАЯ ПОКУПКА PDF-ПРОТОКОЛА
             db.cancel_retention_notifications(telegram_id)
             db.set_maria_order_status(telegram_id, "completed_vip")
+            db.update_user_subscription(telegram_id, "pdf_4900", 30)
+            db.clear_channel_kicked(telegram_id)
             
             # Отправляем клиенту ссылку на Марию
             await message.answer(
@@ -939,7 +1047,22 @@ async def handle_payment_return(message: types.Message):
                 "🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\n"
                 "Проверьте свой профиль командой /profile."
             )
-        
+
+        # Channel access (universal for all tariffs)
+        _u = db.get_user(telegram_id)
+        if _u and _u.get("scanner_expires_at"):
+            try:
+                _exp = datetime.fromisoformat(_u["scanner_expires_at"])
+                if tariff_type == "pdf_4900":
+                    _label = "PDF-протокол"
+                elif tariff_type == "audit_1000":
+                    _label = "Аудит"
+                else:
+                    _label = "Сборка протокола"
+                await grant_channel_access(telegram_id, _label, _exp)
+            except Exception as e:
+                logger.error(f"grant_channel_access (return) failed: {e}")
+
     except Exception as e:
         logger.error(f"Ошибка при возврате с оплаты: {e}")
         await message.answer("⚠️ Ошибка активации доступа. Пожалуйста, свяжитесь с поддержкой.")
@@ -2602,10 +2725,13 @@ async def prodamus_webhook(request: web.Request):
                 amount = int(float(post_data.get("sum", 0)))
 
                 db.save_payment(order_id, telegram_id, amount, tariff_type)
+                db.clear_channel_kicked(telegram_id)
 
                 if tariff_type == "pdf_4900":
                     db.cancel_retention_notifications(telegram_id)
                     db.set_maria_order_status(telegram_id, "completed_vip")
+                    db.update_user_subscription(telegram_id, "pdf_4900", 30)
+                    _label = "PDF-протокол"
                     try:
                         await bot.send_message(
                             telegram_id,
@@ -2616,6 +2742,7 @@ async def prodamus_webhook(request: web.Request):
                 else:
                     db.update_user_subscription(telegram_id, tariff_type, 30)
                     db.cancel_retention_notifications(telegram_id)
+                    _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
                     try:
                         await bot.send_message(
                             telegram_id,
@@ -2623,6 +2750,14 @@ async def prodamus_webhook(request: web.Request):
                         )
                     except Exception:
                         pass
+
+                _u = db.get_user(telegram_id)
+                if _u and _u.get("scanner_expires_at"):
+                    try:
+                        _exp = datetime.fromisoformat(_u["scanner_expires_at"])
+                        await grant_channel_access(telegram_id, _label, _exp)
+                    except Exception as e:
+                        logger.error(f"grant_channel_access (webhook) failed: {e}")
                 
         return web.Response(text="success")
     except Exception as e:
@@ -2631,6 +2766,7 @@ async def prodamus_webhook(request: web.Request):
 
 async def main():
     asyncio.create_task(retention_worker())
+    asyncio.create_task(channel_worker())
 
     try:
         await bot.set_my_commands([
