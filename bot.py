@@ -1120,11 +1120,10 @@ async def cmd_tariffs(message: types.Message, state: FSMContext = None):
 @dp.message(F.text.startswith("/start pay_success_"))
 async def handle_payment_return(message: types.Message):
     order_id = message.text.replace("/start pay_success_", "").strip()
-    
+
     if db.check_payment_exists(order_id):
         await message.answer(
-            "🎉 Ваш доступ успешно активирован! Все ограничения сканера сняты.\n\n"
-            "Проверьте свой профиль командой /profile или сразу отправьте состав средства для проверки 👇",
+            "✅ Ваш доступ уже активирован ранее. Проверьте свой профиль командой /profile.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔍 Проверить средство", callback_data="btn_check_new")],
                 [InlineKeyboardButton(text="👤 Мой профиль", callback_data="menu_profile")]
@@ -1132,20 +1131,97 @@ async def handle_payment_return(message: types.Message):
         )
         return
 
-    # Если вебхук от Продамуса еще в пути (задержка сети банкинга)
-    await message.answer(
-        "⏳ <b>Мы обрабатываем ваш платёж...</b>\n\n"
-        "Обычно подтверждение от банка поступает в течение 1–2 минут. "
-        "Как только оплата зафиксируется, доступ откроется автоматически.\n\n"
-        "Если доступ не открылся через пару минут, нажмите кнопку «Проверить профиль» ниже "
-        "или напишите Марии со скриншотом чека и кодом заказа:\n"
-        f"<code>{_escape_html(order_id)}</code>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Проверить статус", callback_data="menu_profile")],
-            [InlineKeyboardButton(text="💬 Написать Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
-        ]),
-        parse_mode="HTML"
-    )
+    try:
+        # Разбираем order_id (формат: user-123456789-audit_1000-1794950638)
+        parts = order_id.split("-")
+        if len(parts) < 3 or parts[0] != "user":
+            await message.answer("⚠️ Неверный код заказа. Обратитесь в поддержку.")
+            return
+
+        telegram_id = int(parts[1])
+        tariff_type = parts[2]
+
+        _AMOUNT_MAP = {
+            "trial_99": 99,
+            "audit_1000": 1000,
+            "protocol_2500": 2500,
+            "pdf_4900": 4900,
+        }
+        if tariff_type not in _AMOUNT_MAP:
+            await message.answer("⚠️ Неизвестный тариф. Обратитесь в поддержку.")
+            return
+
+        if telegram_id != message.from_user.id:
+            logger.warning(f"⚠️ Попытка чужой активации: sender={message.from_user.id}, order_tid={telegram_id}")
+            await message.answer("⚠️ Этот заказ привязан к другому аккаунту Telegram.")
+            return
+
+        _amount = _AMOUNT_MAP[tariff_type]
+        db.save_payment(order_id, telegram_id, _amount, tariff_type)
+        db.clear_channel_kicked(telegram_id)
+        db.cancel_single_notification(telegram_id, "abandoned_cart")
+
+        if tariff_type == "pdf_4900":
+            db.cancel_retention_notifications(telegram_id)
+            db.set_maria_order_status(telegram_id, "completed_vip")
+            db.update_user_subscription(telegram_id, "pdf_4900", 30)
+            _label = "PDF-протокол"
+
+            await message.answer(
+                "🎉 Оплата PDF-протокола (4 900 ₽) успешно получена!\n\n"
+                "Мария уже получила данные вашей диагностики. Нажмите на кнопку ниже, "
+                "чтобы перейти в личный диалог и согласовать комфортный бюджет на покупку средств 👇",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+                ])
+            )
+            try:
+                user_name = db.get_user_name(telegram_id) or "Клиент"
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"🎉 ОПЛАЧЕН PDF-ПРОТОКОЛ (4 900 ₽)\nКлиент: {user_name}\nID: {telegram_id}"
+                )
+            except Exception:
+                pass
+
+        elif tariff_type == "trial_99":
+            new_expires = db.update_user_subscription(telegram_id, "trial_99", 3)
+            db.cancel_retention_notifications(telegram_id)
+            db.schedule_renewal_notification(telegram_id, "trial_99", new_expires)
+            _label = "Тест-драйв"
+            await message.answer(
+                "🎉 Оплата тест-драйва (99 ₽) успешно получена! Доступ к сканеру активирован на 3 дня.\n\n"
+                "Проверьте свой профиль командой /profile или сразу отправьте состав средства 👇",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔍 Проверить средство", callback_data="btn_check_new")]
+                ])
+            )
+
+        else:
+            new_expires = db.update_user_subscription(telegram_id, tariff_type, 30)
+            db.cancel_retention_notifications(telegram_id)
+            db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
+            _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
+            await message.answer(
+                "🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\n"
+                "Проверьте свой профиль командой /profile или сразу отправьте состав средства 👇",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔍 Проверить средство", callback_data="btn_check_new")]
+                ])
+            )
+
+        # Выдача одноразовой ссылки в закрытый канал (для всех тарифов)
+        _u = db.get_user(telegram_id)
+        if _u and _u.get("scanner_expires_at"):
+            try:
+                _exp = datetime.fromisoformat(_u["scanner_expires_at"])
+                await grant_channel_access(telegram_id, _label, _exp)
+            except Exception as e:
+                logger.error(f"grant_channel_access (return) failed: {e}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при возврате с оплаты: {e}")
+        await message.answer("⚠️ Ошибка активации доступа. Пожалуйста, свяжитесь с поддержкой.")
 
 
 @dp.message(CommandStart())
@@ -2930,6 +3006,10 @@ async def prodamus_webhook(request: web.Request):
     try:
         # Получаем плоские данные из POST-запроса
         post_data = dict(await request.post())
+        logger.info(
+            f"📥 Prodamus webhook received: order_id={post_data.get('order_id')!r}, "
+            f"payment_status={post_data.get('payment_status')!r}"
+        )
         received_sign = (
             post_data.pop("signature", None)
             or post_data.pop("sign", None)
