@@ -1308,7 +1308,7 @@ async def handle_checkup_menu_btn(message: types.Message):
         "По ссылке также можете забрать подарок - 15 000 бонусов 🎁\n"
         "Жми 👇🏻",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="ПОЛУЧИТЬ", callback_data="checkup_get_article")]
+            [InlineKeyboardButton(text="ПОЛУЧИТЬ", url=CHECKUP_ARTICLE_URL)]
         ])
     )
 
