@@ -327,31 +327,37 @@ def get_mariya_payment_keyboard(user_name: str, user_id: int):
 
 PAYWALL_TEXT = (
     "Бесплатный лимит исчерпан. По двум банкам архитектуру не выстроить, а наносить непроверенные средства на вашу кожу сейчас небезопасно.\n\n"
-    "Выбирайте тариф ниже, и давайте соберем ваш идеальный уход:\n\n"
-    "💳 <b>БАЗОВЫЙ АУДИТ (1000 ₽ / 30 дней)</b>\n"
-    "▪️ Быстрая проверка составов до того, как они коснутся вашего лица.\n▪️ Безлимитный сканер: распознает скрытые угрозы, аллергены и пустышки.\n▪️ Защита бюджета: спасает от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
-    "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
-    "▫️ Интеллектуальная память: алгоритм не просто сканирует одну банку — он запоминает и анализирует весь ваш уход целиком.\n▫️ Матрица безопасности: вычисляет конфликт составов и страхует от химических ожогов.\n▫️ Архитектура ухода: показывает, каких позиций не хватает (например, базового крема или SPF), и собирает для вас безопасную систему.\n▫️ Умная экономия: больше никаких выброшенных на ветер денег.\n\n"
-    "Выберите тариф ниже — и я включу сканер составов без ограничений."
+    "Выбирайте комфортный формат ниже, и давайте соберем ваш идеальный уход:\n\n"
+    "⚡ <b>ТЕСТ-ДРАЙВ СКАНЕРА (99 ₽ / 3 дня)</b>\n"
+    "▪️ Быстрый старт: проверьте всю текущую косметичку на полке прямо сейчас.\n"
+    "▪️ Безлимитный сканер: выявит скрытые угрозы, комедогенные базы и пустышки.\n\n"
+    "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b>\n"
+    "▪️ 33 рубля в день — надежная защита кожи и бюджета на целый месяц.\n"
+    "▪️ Проверка любых покупок в Золотом Яблоке, WB и Ozon до оплаты.\n\n"
+    "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b>\n"
+    "▫️ Интеллектуальная память: алгоритм запоминает и анализирует весь ваш уход целиком.\n"
+    "▫️ Матрица безопасности: вычисляет конфликты активов и страхует от ожогов.\n"
+    "▫️ Архитектура ухода: показывает, каких позиций не хватает для чистой кожи.\n\n"
+    "💡 <i>Одна случайно купленная сыворотка-пустышка стоит от 2 500 ₽. Бот окупает себя с первой же забракованной банки.</i>"
 )
 
 WARMUP_TEXT = (
-    "🤖 Роман Андреевич: В будущем вы сможете продолжить работу со мной в двух форматах:\n\n"
-    "💳 <b>БАЗОВЫЙ АУДИТ (1000 ₽ / 30 дней)</b>\n"
-    "▪️ Быстрая проверка составов до того, как они коснутся вашего лица.\n▪️ Безлимитный сканер: распознает скрытые угрозы, аллергены и пустышки.\n▪️ Защита бюджета: спасает от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
-    "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
-    "▫️ Интеллектуальная память: алгоритм не просто сканирует одну банку — он запоминает и анализирует весь ваш уход целиком.\n▫️ Матрица безопасности: вычисляет конфликт составов и страхует от химических ожогов.\n▫️ Архитектура ухода: показывает, каких позиций не хватает (например, базового крема или SPF), и собирает для вас безопасную систему.\n▫️ Умная экономия: больше никаких выброшенных на ветер денег.\n\n"
+    "🤖 Роман Андреевич: В будущем вы сможете продолжить работу со мной в удобном формате:\n\n"
+    "⚡ <b>ТЕСТ-ДРАЙВ (99 ₽ / 3 дня)</b> — разобрать всю текущую косметичку.\n"
+    "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b> — 33 ₽/день за безлимитную защиту от ошибок.\n"
+    "💎 <b>СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b> — ведение и архитектура всей системы ухода.\n\n"
     "🎁 Но у вас осталась еще 1 бесплатная попытка! Какую категорию проверим следующей?"
 )
 
 
 async def send_paywall(message: types.Message):
-    logger.info(f"📊 FUNNEL [paywall_shown] user={message.from_user.id}")
+    logger.info(f"📊 FUNNEL [paywall_shown] user={message.chat.id}")
     await message.answer(
         PAYWALL_TEXT,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ]),
         parse_mode="HTML"
     )
@@ -443,12 +449,32 @@ RETENTION_TEXTS = {
 
     # === ПОДПИСОЧНЫЕ (планируются при оплате, не входят в retention-воронку) ===
     "no_composition_6h": "🤖 {user_name}, я вижу, вы прошли диагностику, но ещё не проверили ни одного средства.\n\nБез проверки первого состава я не могу сказать ничего конкретного о вашей реальной коже. Пришлите состав любого крема (например, того, что сейчас на полке) — это займёт 30 секунд. Я разберу его и покажу, что в нём скрыто.",
-
-        "renewal_audit": "🤖 {user_name}, завтра ваш доступ к сканирующему модулю закрывается.\nНе покупайте новые средства вслепую. Одно средство с жесткими ПАВами или комедогенной базой может спровоцировать воспаление и откатить результаты назад. Продлите «Аудит», чтобы я продолжил жестко фильтровать ваши покупки.\n⬆️ Или перейдите на следующий уровень: выберите «Сборку протокола». Я включу интеллектуальную память, запомню все ваши средства и выстрою из них единую безопасную систему.",
+    "abandoned_cart": "🤖 {user_name}, вижу, что вы начали оформление доступа к сканеру, но оплата не завершилась.\n\nЕсли возникли технические сложности, не проходит зарубежная карта или есть сомнения по формату ухода — напишите напрямую создательнице алгоритма Марии, мы поможем и сохраним за вами условия 👇",
+    "renewal_trial": "🤖 {user_name}, завтра ваш 3-дневный тест-драйв сканера завершается.\nЕсли на вашей полке еще остались непроверенные средства или вы планируете покупки в магазине — продлите «Аудит» (33 ₽/день), чтобы сканер продолжал защищать вашу кожу от ошибок и пустышек.",
+    "renewal_audit": "🤖 {user_name}, завтра ваш доступ к сканирующему модулю закрывается.\nНе покупайте новые средства вслепую. Одно средство с жесткими ПАВами или комедогенной базой может спровоцировать воспаление и откатить результаты назад. Продлите «Аудит», чтобы я продолжил жестко фильтровать ваши покупки.\n⬆️ Или перейдите на следующий уровень: выберите «Сборку протокола». Я включу интеллектуальную память, запомню все ваши средства и выстрою из них единую безопасную систему.",
     "renewal_protocol": "🤖 {user_name}, наш месяц работы подходит к концу. За 28–35 дней эпидермис проходит полный цикл обновления. Завтра ваш доступ к алгоритму закрывается.\nДавайте подведем итоги. Отметьте ниже этапы ухода, которые мы с вами уже успели закрыть безопасными, одобренными средствами:",
     "reactivation_30d": "🤖 {user_name}, срок вашего доступа истек. Сканирующий модуль отключен. Ваша текущая архитектура ухода сохранена и переведена в архив. Когда потребуется выбрать новые средства — алгоритм будет готов распаковать архив и проверить составы.",
     "reactivation_44d": "🤖 {user_name}, если самостоятельный подбор отнимает слишком много времени — снимите с себя эту задачу. Создатель алгоритма, Мария, собирает Индивидуальные Боксы вручную. Вы получаете готовую систему без необходимости вникать в химию.",
     "reactivation_75d": "🤖 {user_name}, согласно статистике расхода, за 1,5–2 месяца базовая сыворотка или крем подходят к концу. Если вы планируете покупку новых средств, помните: не покупать вслепую. Доступ к лаборатории можно возобновить в любую минуту.",
+}
+
+# === СЕГМЕНТАЦИЯ ПРОГРЕВА (RETENTION 2.0) ПО ВЕДУЩИМ БОЛЯМ ===
+RETENTION_SEGMENTS = {
+    "acne": {
+        "24h": "🤖 {user_name}, прошли сутки с момента паузы. Если у вас есть высыпания или закрытые комедоны — каждый день использования непроверенного крема с минеральным маслом, изопропилмиристатом или жесткими ПАВами провоцирует новые бугорки под кожей. Давайте разберем оставшиеся средства и остановим воспалительный цикл?",
+        "5d": "🤖 {user_name}, на маркетплейсах тысячи банок с пометкой «от прыщей», которые на деле содержат дешевые комедогенные спирты и забивают поры еще глубже. Не покупайте новые средства вслепую — проверьте их состав перед заказом.",
+        "7d": "🤖 Прошла неделя. Если мы не убрали из вашей системы агрессивные умывалки, барьер продолжает истончаться, а сальные железы работают в аварийном режиме профицита себума. Давайте наведем порядок в уходе.",
+    },
+    "pregnancy": {
+        "24h": "🤖 {user_name}, прошли сутки. Во время беременности проницаемость кожи повышена, а тератогенные компоненты (ретиноиды, высокие дозы салициловой кислоты, арбутин) несут скрытые риски для малыша. Давайте завершим аудит вашей косметички и убедимся в 100% безопасности ухода?",
+        "5d": "🤖 {user_name}, многие будущие мамы покупают популярные кремы от растяжек и пигментации, не зная, что в них скрыты агрессивные консерванты и химические УФ-фильтры (Benzophenone-3). Проверьте средства до того, как нанесете на кожу.",
+        "7d": "🤖 Прошла неделя с момента диагностики. Ваша кожа в особый период нуждается в максимально бережном физиологичном протоколе. Я готов продолжить аудит.",
+    },
+    "couperose": {
+        "24h": "🤖 {user_name}, прошли сутки. При куперозе и реактивной коже даже один случайный тоник с мятой, эвкалиптом, чистым кислым витамином С или спиртом вызывает стойкую сосудистую эритему и химический ожог. Давайте проверим ваши средства до контакта с лицом?",
+        "5d": "🤖 {user_name}, маркетинг часто обещает «мгновенное снятие красноты», маскируя составы эфирными маслами, которые только расширяют хрупкие капилляры. Не покупайте косметику вслепую.",
+        "7d": "🤖 Прошла неделя. Хрупкие капилляры не восстанавливаются сами, если ежедневно подвергаются скрытому раздражению. Давайте завершим аудит вашей полки.",
+    },
 }
 
 RETENTION_DELAYS = {
@@ -457,9 +483,10 @@ RETENTION_DELAYS = {
     "30d": 2592000, "42d": 3628800, "60d": 5184000,
     "90d": 7776000, "120d": 10368000, "150d": 12960000, "180d": 15552000,
     # Подписочные — без задержки (0), планируются через schedule_single_notification
-    "renewal_audit": 0, "renewal_protocol": 0,
+    "renewal_audit": 0, "renewal_protocol": 0, "renewal_trial": 0,
     "reactivation_30d": 0, "reactivation_44d": 0, "reactivation_75d": 0,
-    "no_composition_6h": 6 * 3600  # 6 часов после анкеты
+    "no_composition_6h": 6 * 3600,  # 6 часов после анкеты
+    "abandoned_cart": 0,
 }
 
 
@@ -520,22 +547,22 @@ def build_system_matrix(telegram_id: int) -> str:
     lines = ["\n\n📊 <b>СТАТУС СБОРКИ ВАШЕЙ СИСТЕМЫ УХОДА:</b>"]
 
     if cleansing_u:
-        lines.append(f"✅ Очищение: Закрыто ({', '.join(cleansing_u[:2])})")
+        lines.append(f"✅ Очищение: Закрыто ({_escape_html(', '.join(cleansing_u[:2]))})")
     else:
         lines.append("❌ Очищение: НЕ ЗАКРЫТО. Ищите мягкий гель на Coco-Glucoside или Decyl Glucoside")
 
     if actives_u:
-        lines.append(f"✅ Активный уход: {', '.join(actives_u[:3])}")
+        lines.append(f"✅ Активный уход: {_escape_html(', '.join(actives_u[:3]))}")
     else:
         lines.append("➖ Активный уход: пока нет (необязательно, если кожа в порядке)")
 
     if base_u:
-        lines.append(f"✅ Базовый крем: Закрыто ({', '.join(base_u[:3])})")
+        lines.append(f"✅ Базовый крем: Закрыто ({_escape_html(', '.join(base_u[:3]))})")
     else:
         lines.append("❌ Базовый крем: НЕ ЗАКРЫТО. Обязательно для восстановления барьера")
 
     if spf_u:
-        lines.append(f"✅ Защита SPF: Закрыто ({', '.join(spf_u[:2])})")
+        lines.append(f"✅ Защита SPF: Закрыто ({_escape_html(', '.join(spf_u[:2]))})")
     else:
         lines.append("❌ Защита SPF: НЕ ЗАКРЫТО. Критически важно при использовании кислот")
 
@@ -559,25 +586,43 @@ def build_stage_keyboard(telegram_id: int):
 
 
 async def _send_retention_notification(telegram_id: int, notif_type: str):
-    text_template = RETENTION_TEXTS.get(notif_type)
+    user = db.get_user(telegram_id)
+    tags = user.get("user_tags", []) if user else []
+
+    # Персонализация прогрева (Retention 2.0) по сегментам кожи
+    segment = None
+    if "pregnancy" in tags:
+        segment = "pregnancy"
+    elif any(t in tags for t in ["acne", "comedones", "problem", "seboprofit"]):
+        segment = "acne"
+    elif any(t in tags for t in ["reactive", "couperose"]):
+        segment = "couperose"
+
+    if segment and segment in RETENTION_SEGMENTS and notif_type in RETENTION_SEGMENTS[segment]:
+        text_template = RETENTION_SEGMENTS[segment][notif_type]
+    else:
+        text_template = RETENTION_TEXTS.get(notif_type)
+
     if not text_template:
         return
 
-    user_name = db.get_user_name(telegram_id) or "Клиент"
+    user_name = _escape_html(db.get_user_name(telegram_id) or "Клиент")
     text = text_template.format(user_name=user_name)
 
     # Клавиатуры по типу уведомления
-    if notif_type in ["14d", "42d", "120d"]:
-        # Только кнопка Марии (деньги-делегирование)
+    if notif_type == "abandoned_cart":
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
+            [InlineKeyboardButton(text="💳 Посмотреть все тарифы", callback_data="show_tariffs")],
+            [InlineKeyboardButton(text="💬 Написать Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
         ])
-    elif notif_type == "180d":
-        # Финальное касание: тарифы + Мария
+    elif notif_type in ["14d", "42d", "120d", "180d"]:
+        # Продажа услуг Марии + тарифы
         kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📦 Заказать бокс / протокол Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
             [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💎 Сборка протокола — 2500 ₽", callback_data="pay_restore_90")]
         ])
     elif notif_type == "no_composition_6h":
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -589,23 +634,31 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
             [InlineKeyboardButton(text="💳 Продлить Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
             [InlineKeyboardButton(text="💎 Перейти на Сборку протокола — 2500 ₽", callback_data="pay_restore_90")]
         ])
+    elif notif_type == "renewal_trial":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола — 2 500 ₽", callback_data="pay_restore_90")]
+        ])
     elif notif_type == "renewal_protocol":
         kb = build_stage_keyboard(telegram_id)
     elif notif_type == "reactivation_44d":
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="📦 Заказать бокс от Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
+            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")]
         ])
     elif notif_type in ["reactivation_30d", "reactivation_75d"]:
         kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
             [InlineKeyboardButton(text="💳 Продлить Аудит — 1000 ₽", callback_data="pay_audit_30")],
             [InlineKeyboardButton(text="💎 Продлить Сборку — 2500 ₽", callback_data="pay_restore_90")]
         ])
     else:
-        # Остальные retention (2h..150d) — стандартные тарифы
+        # Остальные retention (2h..150d) — стандартные тарифы с триалом
         kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
             [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💎 Сборка протокола — 2500 ₽", callback_data="pay_restore_90")]
         ])
 
     try:
@@ -735,6 +788,12 @@ async def retention_worker():
                         db.mark_notification_sent(n["id"])
                         continue
 
+                if notif_type == "abandoned_cart":
+                    user = db.get_user(user_id)
+                    if user and (user.get("maria_order_status") == "completed_vip" or db.has_active_subscription(user)):
+                        db.mark_notification_sent(n["id"])
+                        continue
+
                 if notif_type.startswith("renewal_"):
                     user = db.get_user(user_id)
                     if user and db.has_active_subscription(user):
@@ -750,7 +809,7 @@ async def retention_worker():
 
                 last_activity = db.get_last_activity(user_id)
 
-                if notif_type not in ["renewal_audit", "renewal_protocol", "reactivation_30d", "reactivation_44d", "reactivation_75d", "no_composition_6h"] and last_activity and delay > 0:
+                if notif_type not in ["renewal_audit", "renewal_protocol", "renewal_trial", "reactivation_30d", "reactivation_44d", "reactivation_75d", "no_composition_6h", "abandoned_cart"] and last_activity and delay > 0:
                     elapsed = (datetime.now() - last_activity).total_seconds()
                     if elapsed < delay:
                         new_time = last_activity + timedelta(seconds=delay)
@@ -768,14 +827,21 @@ async def _resolve_user_name(message: types.Message, state: FSMContext, user: di
     data = await state.get_data()
     name = data.get("user_name")
 
+    if not name and user:
+        name = user.get("user_name")
+
     if not name:
+        telegram_id = user.get("telegram_id") if user else message.chat.id
         try:
-            name = db.get_user_name(message.from_user.id)
+            name = db.get_user_name(telegram_id)
         except Exception:
             name = None
 
+    if not name and message.from_user and not getattr(message.from_user, "is_bot", False):
+        name = message.from_user.first_name
+
     if not name:
-        name = message.from_user.first_name or "Клиент"
+        name = "Клиент"
 
     if data.get("user_name") != name:
         await state.update_data(user_name=name)
@@ -862,7 +928,7 @@ async def handle_scanner_entry(message: types.Message, state: FSMContext, user: 
 @dp.message(F.text == "/profile")
 async def cmd_profile(message: types.Message, state: FSMContext):
     await state.clear()
-    telegram_id = message.from_user.id
+    telegram_id = message.chat.id
     user = db.get_or_create_user(telegram_id)
     user_name = db.get_user_name(telegram_id) or "Клиент"
 
@@ -891,6 +957,21 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"Выберите тариф в меню /tariffs, чтобы включить сканер составов."
         )
         await message.answer(text)
+
+    elif user.get("scanner_tariff") == "trial_99":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y %H:%M')
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Тариф: ⚡ Тест-драйв сканера (3 дня)\n"
+            f"Активен до: {exp_date}\n\n"
+            f"Продлить на месяц: /tariffs"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="💳 Продлить на месяц (1 000 ₽)", callback_data="pay_audit_30")]
+        ])
+        await message.answer(text, reply_markup=kb)
 
     elif user.get("scanner_tariff") == "audit_1000":
         exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
@@ -921,6 +1002,32 @@ async def cmd_profile(message: types.Message, state: FSMContext):
         ])
         await message.answer(text, reply_markup=kb)
 
+    elif user.get("scanner_tariff") == "pdf_4900":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Тариф: 👑 VIP PDF-протокол + Сканер\n"
+            f"Активен до: {exp_date}"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+        ])
+        await message.answer(text, reply_markup=kb)
+
+    else:
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y') if user.get("scanner_expires_at") else "—"
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Статус доступа: Активен до {exp_date}"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+        ])
+        await message.answer(text, reply_markup=kb)
+
 
 @dp.callback_query(F.data == "btn_check_new")
 async def handle_btn_check_new(callback: types.CallbackQuery, state: FSMContext):
@@ -945,7 +1052,7 @@ async def show_user_base(callback: types.CallbackQuery):
             comp_short = p["composition"][:30] + "..." if len(p["composition"]) > 30 else p["composition"]
             if comp_short.startswith("[ФОТО"):
                 comp_short = "Фото состава"
-            text += f"{i}. {status_str} {p['stage']} ({comp_short})\n"
+            text += f"{i}. {status_str} {_escape_html(p.get('stage') or '')} ({_escape_html(comp_short)})\n"
             kb_buttons.append([InlineKeyboardButton(text=f"🗑 Удалить #{i}", callback_data=f"del_base_{p['id']}")])
         if len(products) > 15:
             text += f"\n... и еще {len(products) - 15} средств."
@@ -984,15 +1091,23 @@ async def cmd_tariffs(message: types.Message, state: FSMContext = None):
     if state:
         await state.clear()
     text = (
-        "🤖 Роман Андреевич: Выберите формат работы:\n\n"
-        "💳 <b>БАЗОВЫЙ АУДИТ (1000 ₽ / 30 дней)</b>\n"
-        "▪️ Быстрая проверка составов до того, как они коснутся вашего лица.\n▪️ Безлимитный сканер: распознает скрытые угрозы, аллергены и пустышки.\n▪️ Защита бюджета: спасает от спонтанных покупок и ошибок, которые дорого обойдутся вашей коже.\n\n"
-        "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2500 ₽ / 30 дней)</b>\n"
-        "▫️ Интеллектуальная память: алгоритм не просто сканирует одну банку — он запоминает и анализирует весь ваш уход целиком.\n▫️ Матрица безопасности: вычисляет конфликт составов и страхует от химических ожогов.\n▫️ Архитектура ухода: показывает, каких позиций не хватает (например, базового крема или SPF), и собирает для вас безопасную систему.\n▫️ Умная экономия: больше никаких выброшенных на ветер денег.\n\n"
+        "🤖 Роман Андреевич: Выберите комфортный формат работы:\n\n"
+        "⚡ <b>ТЕСТ-ДРАЙВ СКАНЕРА (99 ₽ / 3 дня)</b>\n"
+        "▪️ Быстрый тест: разберите всю текущую косметичку на полке прямо сейчас.\n"
+        "▪️ Безлимитный сканер: выявит скрытые угрозы, комедогенные базы и пустышки.\n\n"
+        "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b>\n"
+        "▪️ 33 рубля в день — надежная защита кожи и бюджета на целый месяц.\n"
+        "▪️ Безлимитная проверка любых покупок в Золотом Яблоке, WB и Ozon до оплаты.\n\n"
+        "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b>\n"
+        "▫️ Интеллектуальная память: алгоритм запоминает и анализирует весь ваш уход целиком.\n"
+        "▫️ Матрица безопасности: вычисляет конфликты активов и страхует от ожогов.\n"
+        "▫️ Архитектура ухода: показывает, каких позиций не хватает для чистой кожи.\n\n"
+        "💡 <i>Одна случайно купленная сыворотка-пустышка стоит от 2 500 ₽. Бот окупает себя с первой же забракованной банки.</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-        [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2500 ₽", callback_data="pay_restore_90")]
+        [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
+        [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+        [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1002,73 +1117,30 @@ async def handle_payment_return(message: types.Message):
     order_id = message.text.replace("/start pay_success_", "").strip()
     
     if db.check_payment_exists(order_id):
-        await message.answer("✅ Ваш доступ уже активирован ранее.")
+        await message.answer(
+            "🎉 Ваш доступ успешно активирован! Все ограничения сканера сняты.\n\n"
+            "Проверьте свой профиль командой /profile или сразу отправьте состав средства для проверки 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Проверить средство", callback_data="btn_check_new")],
+                [InlineKeyboardButton(text="👤 Мой профиль", callback_data="menu_profile")]
+            ])
+        )
         return
 
-    try:
-        # МЕНЯЕМ РАЗБОР НА ДЕФИСЫ:
-                # Разбираем order_id (формат: user-123456789-pdf_4900-123456)
-        parts = order_id.split("-")
-        telegram_id = int(parts[1])
-        tariff_type = parts[2]
-        
-        _AMOUNT_MAP = {"pdf_4900": 4900, "audit_1000": 1000, "protocol_2500": 2500}
-        _amount = _AMOUNT_MAP.get(tariff_type, 0)
-        db.save_payment(order_id, telegram_id, _amount, tariff_type)
-        db.clear_channel_kicked(telegram_id)  # universal for all tariffs
-        
-        if tariff_type == "pdf_4900":
-            db.cancel_retention_notifications(telegram_id)
-            db.set_maria_order_status(telegram_id, "completed_vip")
-            db.update_user_subscription(telegram_id, "pdf_4900", 30)
-            db.clear_channel_kicked(telegram_id)
-            
-            # Отправляем клиенту ссылку на Марию
-            await message.answer(
-                "🎉 Оплата PDF-протокола (4 900 ₽) успешно получена!\n\n"
-                "Мария уже получила данные вашей диагностики. Нажмите на кнопку ниже, "
-                "чтобы перейти в личный диалог и согласовать комфортный бюджет на покупку средств 👇",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
-                ])
-            )
-            # Уведомляем админа
-            try:
-                user_name = db.get_user_name(telegram_id) or "Клиент"
-                await bot.send_message(
-                    ADMIN_ID, 
-                    f"🎉 ОПЛАЧЕН PDF-ПРОТОКОЛ (4 900 ₽)\nКлиент: {user_name}\nID: {telegram_id}"
-                )
-            except Exception:
-                pass
-        else:
-            # ЭТО ПОДПИСКА (Аудит или Сборка протокола)
-            new_expires = db.update_user_subscription(telegram_id, tariff_type, 30)
-            db.cancel_retention_notifications(telegram_id)
-            db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
-            await message.answer(
-                "🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\n"
-                "Проверьте свой профиль командой /profile."
-            )
-
-        # Channel access (universal for all tariffs)
-        _u = db.get_user(telegram_id)
-        if _u and _u.get("scanner_expires_at"):
-            try:
-                _exp = datetime.fromisoformat(_u["scanner_expires_at"])
-                if tariff_type == "pdf_4900":
-                    _label = "PDF-протокол"
-                elif tariff_type == "audit_1000":
-                    _label = "Аудит"
-                else:
-                    _label = "Сборка протокола"
-                await grant_channel_access(telegram_id, _label, _exp)
-            except Exception as e:
-                logger.error(f"grant_channel_access (return) failed: {e}")
-
-    except Exception as e:
-        logger.error(f"Ошибка при возврате с оплаты: {e}")
-        await message.answer("⚠️ Ошибка активации доступа. Пожалуйста, свяжитесь с поддержкой.")
+    # Если вебхук от Продамуса еще в пути (задержка сети банкинга)
+    await message.answer(
+        "⏳ <b>Мы обрабатываем ваш платёж...</b>\n\n"
+        "Обычно подтверждение от банка поступает в течение 1–2 минут. "
+        "Как только оплата зафиксируется, доступ откроется автоматически.\n\n"
+        "Если доступ не открылся через пару минут, нажмите кнопку «Проверить профиль» ниже "
+        "или напишите Марии со скриншотом чека и кодом заказа:\n"
+        f"<code>{_escape_html(order_id)}</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Проверить статус", callback_data="menu_profile")],
+            [InlineKeyboardButton(text="💬 Написать Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+        ]),
+        parse_mode="HTML"
+    )
 
 
 @dp.message(CommandStart())
@@ -1236,7 +1308,9 @@ async def ask_mariya_question(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "pay_pdf_4900")
 async def pay_pdf_4900(callback: types.CallbackQuery):
-    link = await generate_prodamus_link(callback.from_user.id, 4900, "pdf_4900")
+    telegram_id = callback.from_user.id
+    link = await generate_prodamus_link(telegram_id, 4900, "pdf_4900")
+    db.schedule_single_notification(telegram_id, "abandoned_cart", datetime.now() + timedelta(minutes=35))
     await callback.message.answer(
         "📄 <b>Персональный PDF-протокол (4 900 ₽)</b> — уход в формате подробного "
         "PDF-руководства. Мария подберёт косметику строго под ваш бюджет, даст прямые "
@@ -1256,6 +1330,7 @@ async def pay_pdf_4900(callback: types.CallbackQuery):
 
 
 _PRODUCT_NAMES = {
+    "trial_99": "Тест-драйв сканера (3 дня)",
     "audit_1000": "Базовый аудит (30 дней)",
     "protocol_2500": "Сборка протокола (30 дней)",
     "pdf_4900": "Персональный PDF-протокол",
@@ -1294,25 +1369,52 @@ async def generate_prodamus_link(telegram_id: int, amount: int, tariff_type: str
 
 
 
+@dp.callback_query(F.data == "pay_trial_99")
+async def pay_trial_99(callback: types.CallbackQuery):
+    telegram_id = callback.from_user.id
+    link = await generate_prodamus_link(telegram_id, 99, "trial_99")
+    db.schedule_single_notification(telegram_id, "abandoned_cart", datetime.now() + timedelta(minutes=35))
+    await callback.message.answer(
+        "⚡ <b>Тест-драйв сканера (99 ₽ / 3 дня)</b>\n\n"
+        "Проверьте всю текущую косметичку на полке прямо сейчас без ограничений.\n"
+        "После успешной оплаты доступ активируется автоматически 👇",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Оплатить 99 ₽", url=link)]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "pay_audit_30")
 async def pay_audit_30(callback: types.CallbackQuery):
-    link = await generate_prodamus_link(callback.from_user.id, 1000, "audit_1000")
+    telegram_id = callback.from_user.id
+    link = await generate_prodamus_link(telegram_id, 1000, "audit_1000")
+    db.schedule_single_notification(telegram_id, "abandoned_cart", datetime.now() + timedelta(minutes=35))
     await callback.message.answer(
-        "Для оплаты тарифа «Аудит» (1000 ₽ / 30 дней) нажмите кнопку ниже:",
+        "💳 <b>Тариф «Базовый аудит» (1000 ₽ / 30 дней)</b>\n\n"
+        "33 рубля в день за безлимитную защиту от ошибок и спонтанных покупок.\n"
+        "Нажмите кнопку ниже для перехода к оплате:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
-        ])
+            [InlineKeyboardButton(text="💳 Перейти к оплате 1 000 ₽", url=link)]
+        ]),
+        parse_mode="HTML"
     )
     await callback.answer()
 
 @dp.callback_query(F.data == "pay_restore_90")
 async def pay_restore_90(callback: types.CallbackQuery):
-    link = await generate_prodamus_link(callback.from_user.id, 2500, "protocol_2500")
+    telegram_id = callback.from_user.id
+    link = await generate_prodamus_link(telegram_id, 2500, "protocol_2500")
+    db.schedule_single_notification(telegram_id, "abandoned_cart", datetime.now() + timedelta(minutes=35))
     await callback.message.answer(
-        "Для оплаты тарифа «Сборка протокола» (2500 ₽ / 30 дней) нажмите кнопку ниже:",
+        "💎 <b>Тариф «Сборка протокола» (2500 ₽ / 30 дней)</b>\n\n"
+        "Интеллектуальная память + матрица конфликтов + архитектура всей косметички.\n"
+        "Нажмите кнопку ниже для перехода к оплате:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Перейти к оплате", url=link)]
-        ])
+            [InlineKeyboardButton(text="💳 Перейти к оплате 2 500 ₽", url=link)]
+        ]),
+        parse_mode="HTML"
     )
     await callback.answer()
 
@@ -1764,7 +1866,10 @@ async def finish_survey(message: types.Message, state: FSMContext):
         "4. Отправь сюда в чат\n\n"
         "📋 <b>Пример:</b> <code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
         "Название средства писать <b>не нужно</b> — только список INCI.\n\n"
-        "🎬 <b>Видео-инструкция ниже 👇</b>",
+        "💡 <i>Если крема нет под рукой — нажмите кнопку ниже, чтобы увидеть пример разбора:</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🧪 Попробовать на примере (Крем с Ниацинамидом)", callback_data="demo_test_scan")]
+        ]),
         parse_mode="HTML"
     )
 
@@ -1805,7 +1910,44 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str):
+@dp.callback_query(F.data == "demo_test_scan")
+async def handle_demo_test_scan(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer("Запускаю демо-разбор состава...")
+    sample_inci = (
+        "Aqua, Niacinamide, Glycerin, Cetearyl Alcohol, Caprylic/Capric Triglyceride, "
+        "Ceramide NP, Ceramide AP, Ceramide EOP, Phytosphingosine, Cholesterol, "
+        "Sodium Hyaluronate, Xanthan Gum, Phenoxyethanol, Ethylhexylglycerin"
+    )
+    user = db.get_or_create_user(callback.from_user.id)
+    await callback.message.answer(
+        "🧪 <b>Демонстрационный разбор популярного крема</b> (CeraVe с церамидами и ниацинамидом):\n\n"
+        f"<code>{sample_inci}</code>",
+        parse_mode="HTML"
+    )
+    await perform_analysis(callback.message, state, user, sample_inci, "care", is_demo=True)
+
+
+async def _check_bad_bottles_alarm(message: types.Message, telegram_id: int, user_name: str):
+    """Триггер «Косметическая катастрофа»: 3 забракованных средства подряд -> оффер на Марию."""
+    fresh_user = db.get_user(telegram_id)
+    if fresh_user and (fresh_user.get("bad_bottles_in_a_row", 0) >= 3):
+        safe_u_name = _escape_html(user_name or "Клиент")
+        catastrophe_text = (
+            f"🚨 <b>ВНИМАНИЕ: КРИТИЧЕСКИЙ РИСК ДЛЯ БАРЬЕРА КОЖИ!</b>\n\n"
+            f"{safe_u_name}, уже 3 проверенных вами средства подряд получили статус отбраковки.\n\n"
+            "Ваша текущая косметика систематически разрушает гидролипидную мантию. "
+            "Продолжать наносить эти средства вслепую — прямой путь к дерматиту, вспышке акне и стойкому куперозу.\n\n"
+            "Вам необходима полная ревизия ухода под контролем эксперта. "
+            "Создательница алгоритма, практикующий косметолог Мария, может собрать для вас индивидуальный протокол или отправить готовый физиологичный бокс 👇"
+        )
+        catastrophe_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Разобрать уход с Марией", url=f"https://t.me/{MARIYA_USERNAME}")],
+            [InlineKeyboardButton(text="📦 Заказать готовый бокс (от 9 000 ₽)", url=f"https://t.me/{MARIYA_USERNAME}")]
+        ])
+        await message.answer(catastrophe_text, reply_markup=catastrophe_kb, parse_mode="HTML")
+
+
+async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str, is_demo: bool = False):
     telegram_id = user["telegram_id"]
     user_name = await _resolve_user_name(message, state, user)
 
@@ -1821,15 +1963,15 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
 
     async with lock:
         user = db.get_or_create_user(telegram_id)
-        if not check_user_limits(user):
+        if not is_demo and not check_user_limits(user):
             db.schedule_retention_notifications(telegram_id)
             await send_paywall(message)
             return
 
-        tariff = get_user_tariff(user)
-        logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}")
+        tariff = "free" if is_demo else get_user_tariff(user)
+        logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}, is_demo={is_demo}")
 
-        if telegram_id not in UNLIMITED_IDS:
+        if not is_demo and telegram_id not in UNLIMITED_IDS:
             limit_status = db.check_rate_limit(telegram_id)
             if limit_status:
                 if limit_status == "day":
@@ -1838,7 +1980,8 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
                     await message.answer("⏳ Слишком много запросов. Пожалуйста, подождите немного.")
                 return
 
-        db.log_scan(telegram_id)
+        if not is_demo:
+            db.log_scan(telegram_id)
         tags = user.get("user_tags", [])
 
         # ⚠️ STATEFUL только для tariff="protocol" (unlimited + реальный 2500). Free/Audit — stateless.
@@ -1858,7 +2001,7 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
 
         try:
             result = await analyze_composition(composition, tags, user_name, category, tariff, approved_routine)
-            clean_text = result["verdict"]
+            clean_text = (result["verdict"] or "").strip()[:4000]
             stage = result["stage"]
             actives = result["key_actives"]
             status = result["status"]
@@ -1876,26 +2019,40 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
                 return
 
             record_id = None
-            if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
+            if not is_demo and category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
                 record_id = db.save_approved_product(telegram_id, composition, status, category, stage, actives)
 
-            db.save_analysis(telegram_id, composition, clean_text, status)
-            await state.clear()
-            try:
-                db.cancel_single_notification(telegram_id, "no_composition_6h")
-            except Exception:
-                pass
+            if not is_demo:
+                db.save_analysis(telegram_id, composition, clean_text, status)
+                await state.clear()
+                try:
+                    db.cancel_single_notification(telegram_id, "no_composition_6h")
+                except Exception:
+                    pass
 
-            if status in ["bad", "hidden_threat"]:
-                db.increment_bad_bottles(telegram_id)
-            else:
-                db.reset_bad_bottles(telegram_id)
+                if status in ["bad", "hidden_threat"]:
+                    db.increment_bad_bottles(telegram_id)
+                else:
+                    db.reset_bad_bottles(telegram_id)
+
+            if not is_demo and status in ["bad", "hidden_threat"]:
+                await _check_bad_bottles_alarm(message, telegram_id, user_name)
 
             is_unlimited = (telegram_id in UNLIMITED_IDS)
             has_sub = db.has_active_subscription(user)
             is_protocol = is_unlimited or (user.get("scanner_tariff") == "protocol_2500" and has_sub)
 
-            if is_unlimited:
+            if is_demo:
+                await loading_msg.edit_text(clean_text)
+                await message.answer(
+                    "💡 <b>Это был демонстрационный разбор.</b> Ваш бесплатный лимит не списан!\n\n"
+                    "Теперь проверьте свой крем. Выберите категорию средства 👇",
+                    reply_markup=get_category_4_keyboard(),
+                    parse_mode="HTML"
+                )
+                await state.set_state(Form.waiting_for_composition)
+                return
+            elif is_unlimited:
                 await loading_msg.edit_text(clean_text)
                 await message.answer("👑 Режим безлимита: проверок не ограничено.")
             elif not has_sub:
@@ -2039,35 +2196,6 @@ async def reject_other_media(message: types.Message):
     )
 
 
-@dp.callback_query(F.data.startswith("cat_"))
-async def process_category_choice(callback: types.CallbackQuery, state: FSMContext):
-    try:
-        await callback.answer()
-    except Exception:
-        pass
-
-    await safe_delete(callback.message)
-    cat_data = callback.data.split("_")
-    cat_type = cat_data[1]
-
-    data = await state.get_data()
-    pending_inci = data.get("pending_inci")
-
-    await state.update_data(category=cat_type)
-
-    if pending_inci:
-        user = db.get_or_create_user(callback.from_user.id)
-        await state.update_data(pending_inci=None)
-        await callback.message.answer("Категория выбрана. Приступаю к анализу!")
-        await perform_analysis(callback.message, state, user, pending_inci, cat_type)
-    else:
-        await callback.message.answer(
-            "Категория выбрана. Отправьте фотографию состава (четкое фото этикетки или скриншот из интернет-магазина) "
-            "либо пришлите список компонентов (INCI) текстом 👇"
-        )
-        await state.set_state(Form.waiting_for_composition)
-
-
 @dp.callback_query(F.data == "analyze_photos")
 async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
     try:
@@ -2125,7 +2253,13 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-        extracted_text = await extract_text_from_photos(photo_urls)
+        try:
+            extracted_text = await extract_text_from_photos(photo_urls)
+        except Exception as e:
+            logger.error(f"Ошибка OCR в analyze_photos: {e}")
+            await loading_msg.edit_text("❌ Техническая ошибка распознавания фото. Попробуйте ещё раз — лимит не списан.")
+            await state.update_data(category=None, photo_urls=[])
+            return
 
         if not validate_inci_text(extracted_text):
             logger.info(
@@ -2168,8 +2302,15 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
         else:
             logger.info(f"📊 STATELESS MODE: approved_routine пустой для user={telegram_id}, tariff={tariff!r}")
 
-        result = await analyze_composition(extracted_text, tags, user_name, category, tariff, approved_routine)
-        clean_text = result["verdict"]
+        try:
+            result = await analyze_composition(extracted_text, tags, user_name, category, tariff, approved_routine)
+        except Exception as e:
+            logger.error(f"Ошибка анализа фото в analyze_photos: {e}")
+            await loading_msg.edit_text("❌ Техническая ошибка при анализе состава. Попробуйте ещё раз — лимит не списан.")
+            await state.update_data(category=None, photo_urls=[])
+            return
+
+        clean_text = (result["verdict"] or "").strip()[:4000]
         stage = result["stage"]
         actives = result["key_actives"]
         status = result["status"]
@@ -2199,6 +2340,7 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
 
         if status in ["bad", "hidden_threat"]:
             db.increment_bad_bottles(telegram_id)
+            await _check_bad_bottles_alarm(callback.message, telegram_id, user_name)
         else:
             db.reset_bad_bottles(telegram_id)
 
@@ -2361,6 +2503,20 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"Выберите тариф в меню /tariffs, чтобы включить сканер составов."
         )
         await callback.message.answer(text)
+    elif user.get("scanner_tariff") == "trial_99":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y %H:%M')
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Тариф: ⚡ Тест-драйв сканера (3 дня)\n"
+            f"Активен до: {exp_date}\n\n"
+            f"Продлить на месяц: /tariffs"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="💳 Продлить на месяц (1 000 ₽)", callback_data="pay_audit_30")]
+        ])
+        await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "audit_1000":
         exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
         text = (
@@ -2388,8 +2544,30 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")]
         ])
         await callback.message.answer(text, reply_markup=kb)
+    elif user.get("scanner_tariff") == "pdf_4900":
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y')
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Тариф: 👑 VIP PDF-протокол + Сканер\n"
+            f"Активен до: {exp_date}"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
+            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+        ])
+        await callback.message.answer(text, reply_markup=kb)
     else:
-        await callback.message.answer("⚠️ Не удалось определить статус доступа.")
+        exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y') if user.get("scanner_expires_at") else "—"
+        text = (
+            f"👤 Имя: {user_name}\n"
+            f"Ваши диагностические маркеры: {tags_str}\n"
+            f"Статус доступа: Активен до {exp_date}"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+        ])
+        await callback.message.answer(text, reply_markup=kb)
 
     await callback.answer()
 
@@ -2568,6 +2746,14 @@ async def reject_other_media_no_state(message: types.Message, state: FSMContext)
     )
 
 
+@dp.callback_query(F.data == "ignore")
+async def cb_ignore(callback: types.CallbackQuery):
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
+
 @dp.callback_query(F.data.startswith("remove_item:"))
 async def remove_item(callback: types.CallbackQuery, state: FSMContext):
     record_id = int(callback.data.split(":")[1])
@@ -2705,7 +2891,12 @@ async def prodamus_webhook(request: web.Request):
     try:
         # Получаем плоские данные из POST-запроса
         post_data = dict(await request.post())
-        received_sign = post_data.pop("signature", None) or request.headers.get("Sign")
+        received_sign = (
+            post_data.pop("signature", None)
+            or post_data.pop("sign", None)
+            or request.headers.get("Sign")
+            or request.headers.get("sign")
+        )
         
         if not received_sign:
             return web.Response(status=403, text="No signature")
@@ -2721,47 +2912,75 @@ async def prodamus_webhook(request: web.Request):
         # Если оплата успешна (ключ может быть payment_status или status - обычно payment_status)
         if post_data.get("payment_status") == "success":
             order_id = post_data.get("order_id")
-            if not db.check_payment_exists(order_id):
+            if order_id and not db.check_payment_exists(order_id):
                 # order_id = "user-<tid>-<tariff>-<ts>"  (split by "-")
                 parts = order_id.split("-")
-                telegram_id = int(parts[1])
-                tariff_type = parts[2]
-                amount = int(float(post_data.get("sum", 0)))
+                if len(parts) >= 3 and parts[0] == "user":
+                    telegram_id = int(parts[1])
+                    tariff_type = parts[2]
+                    amount = int(float(post_data.get("sum", 0)))
 
-                db.save_payment(order_id, telegram_id, amount, tariff_type)
-                db.clear_channel_kicked(telegram_id)
+                    db.save_payment(order_id, telegram_id, amount, tariff_type)
+                    db.clear_channel_kicked(telegram_id)
+                    db.cancel_single_notification(telegram_id, "abandoned_cart")
 
-                if tariff_type == "pdf_4900":
-                    db.cancel_retention_notifications(telegram_id)
-                    db.set_maria_order_status(telegram_id, "completed_vip")
-                    db.update_user_subscription(telegram_id, "pdf_4900", 30)
-                    _label = "PDF-протокол"
-                    try:
-                        await bot.send_message(
-                            telegram_id,
-                            "🎉 Оплата PDF-протокола получена! Мария свяжется с вами."
-                        )
-                    except Exception:
-                        pass
-                else:
-                    db.update_user_subscription(telegram_id, tariff_type, 30)
-                    db.cancel_retention_notifications(telegram_id)
-                    _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
-                    try:
-                        await bot.send_message(
-                            telegram_id,
-                            "🎉 Оплата успешно получена! Доступ активирован на 30 дней. Проверьте /profile."
-                        )
-                    except Exception:
-                        pass
+                    if tariff_type == "pdf_4900":
+                        db.cancel_retention_notifications(telegram_id)
+                        db.set_maria_order_status(telegram_id, "completed_vip")
+                        db.update_user_subscription(telegram_id, "pdf_4900", 30)
+                        _label = "PDF-протокол"
+                        try:
+                            await bot.send_message(
+                                telegram_id,
+                                "🎉 Оплата PDF-протокола (4 900 ₽) успешно получена!\n\n"
+                                "Мария уже получила данные вашей диагностики. Нажмите на кнопку ниже, "
+                                "чтобы перейти в личный диалог и согласовать комфортный бюджет на покупку средств 👇",
+                                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+                                ])
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            user_name = db.get_user_name(telegram_id) or "Клиент"
+                            await bot.send_message(
+                                ADMIN_ID,
+                                f"🎉 ОПЛАЧЕН PDF-ПРОТОКОЛ (4 900 ₽)\nКлиент: {user_name}\nID: {telegram_id}"
+                            )
+                        except Exception:
+                            pass
+                    elif tariff_type == "trial_99":
+                        new_expires = db.update_user_subscription(telegram_id, "trial_99", 3)
+                        db.cancel_retention_notifications(telegram_id)
+                        db.schedule_renewal_notification(telegram_id, "trial_99", new_expires)
+                        _label = "Тест-драйв"
+                        try:
+                            await bot.send_message(
+                                telegram_id,
+                                "🎉 Оплата тест-драйва получена! Сканер активирован на 3 дня без ограничений. Проверьте /profile."
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        new_expires = db.update_user_subscription(telegram_id, tariff_type, 30)
+                        db.cancel_retention_notifications(telegram_id)
+                        db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
+                        _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
+                        try:
+                            await bot.send_message(
+                                telegram_id,
+                                "🎉 Оплата успешно получена! Доступ активирован на 30 дней. Проверьте /profile."
+                            )
+                        except Exception:
+                            pass
 
-                _u = db.get_user(telegram_id)
-                if _u and _u.get("scanner_expires_at"):
-                    try:
-                        _exp = datetime.fromisoformat(_u["scanner_expires_at"])
-                        await grant_channel_access(telegram_id, _label, _exp)
-                    except Exception as e:
-                        logger.error(f"grant_channel_access (webhook) failed: {e}")
+                    _u = db.get_user(telegram_id)
+                    if _u and _u.get("scanner_expires_at"):
+                        try:
+                            _exp = datetime.fromisoformat(_u["scanner_expires_at"])
+                            await grant_channel_access(telegram_id, _label, _exp)
+                        except Exception as e:
+                            logger.error(f"grant_channel_access (webhook) failed: {e}")
                 
         return web.Response(text="success")
     except Exception as e:

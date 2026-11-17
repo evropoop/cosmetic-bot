@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
-    base_url="https://polza.ai/api/v1"
+    base_url="https://polza.ai/api/v1",
+    timeout=60.0
 )
 
 MODEL_NAME = "anthropic/claude-sonnet-4.5"

@@ -81,7 +81,8 @@ def parse_bracket_form(flat):
     """
     result = {}
 
-    for key, value in flat.items():
+    items = flat.items() if hasattr(flat, "items") else flat
+    for key, value in items:
         match = _KEY_PATTERN.match(key)
         if not match:
             result[key] = value

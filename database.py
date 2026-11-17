@@ -425,7 +425,7 @@ def update_user_subscription(telegram_id: int, tariff: str, days: int = 30):
 
 
 def has_active_subscription(user: dict) -> bool:
-    if user.get("scanner_tariff") in ["audit_1000", "protocol_2500"]:
+    if user.get("scanner_tariff") in ["audit_1000", "protocol_2500", "trial_99", "pdf_4900"]:
         exp = user.get("scanner_expires_at")
         if exp:
             try:
@@ -438,7 +438,12 @@ def has_active_subscription(user: dict) -> bool:
 # ================== RENEWAL ==================
 def schedule_renewal_notification(telegram_id: int, tariff_type: str, expires_at_iso: str):
     """Планирует renewal_X за 24 часа до окончания подписки."""
-    renewal_type = "renewal_audit" if tariff_type == "audit_1000" else "renewal_protocol"
+    if tariff_type == "audit_1000":
+        renewal_type = "renewal_audit"
+    elif tariff_type == "trial_99":
+        renewal_type = "renewal_trial"
+    else:
+        renewal_type = "renewal_protocol"
     try:
         expires_dt = datetime.fromisoformat(expires_at_iso)
     except Exception:
@@ -449,7 +454,7 @@ def schedule_renewal_notification(telegram_id: int, tariff_type: str, expires_at
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "DELETE FROM scheduled_notifications WHERE telegram_id = ? AND notification_type IN ('renewal_audit', 'renewal_protocol') AND sent = 0",
+        "DELETE FROM scheduled_notifications WHERE telegram_id = ? AND notification_type IN ('renewal_audit', 'renewal_protocol', 'renewal_trial') AND sent = 0",
         (telegram_id,)
     )
     scheduled_at = expires_dt - timedelta(hours=24)
