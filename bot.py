@@ -274,11 +274,16 @@ def get_user_tariff(user: dict) -> str:
     return "free"
 
 
+CHECKUP_BTN_TEXT = "🎁 Чекап + 15 000 бонусов"
+CHECKUP_ARTICLE_URL = "https://telegra.ph/Kak-projti-polnyj-chekap-na-50-pokazatelej-za-1-990--vmesto-4-422--i-poluchit-20-000-bonusov-11-17"
+
+
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🔍 Проверить новое средство")],
+        [KeyboardButton(text=CHECKUP_BTN_TEXT)],
         [KeyboardButton(text="📋 Меню")]
-    ], resize_keyboard=True)
+    ], resize_keyboard=True, is_persistent=True)
 
 
 def get_category_4_keyboard():
@@ -1165,6 +1170,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
                         f"состоянием вашей кожи, ей нужно время на восстановление. ⏳\n\n"
                         f"Обновить профиль и пройти диагностику заново можно будет через "
                         f"*{days_left}* дней.",
+                        reply_markup=get_mode_keyboard(),
                         parse_mode="Markdown"
                     )
                     return
@@ -1172,11 +1178,14 @@ async def cmd_start(message: types.Message, state: FSMContext):
                 logger.error(f"Ошибка карантина: {e}")
 
     try:
-        await message.answer_video_note(video_note=CIRCLE_VIDEO_ID)
+        await message.answer_video_note(video_note=CIRCLE_VIDEO_ID, reply_markup=get_mode_keyboard())
     except Exception as e:
         logger.warning(f"Не удалось отправить кружок ({e}) — fallback на текст")
         try:
-            await message.answer("👋 Добро пожаловать! Нажмите СТАРТ ниже — запустим диагностику.")
+            await message.answer(
+                "👋 Добро пожаловать! Нажмите СТАРТ ниже — запустим диагностику.",
+                reply_markup=get_mode_keyboard()
+            )
         except Exception:
             pass
 
@@ -1212,6 +1221,35 @@ async def cmd_start(message: types.Message, state: FSMContext):
         "Также вы можете забрать готовый уход от Марии, нажав на кнопку внизу.",
         reply_markup=get_mode_keyboard()
     )
+
+
+@dp.message(StateFilter("*"), F.text == CHECKUP_BTN_TEXT)
+async def handle_checkup_menu_btn(message: types.Message):
+    logger.info(f"📊 FUNNEL [checkup_btn_clicked] user={message.from_user.id}")
+    await message.answer(
+        "Приветствую 🫂\n"
+        "Забирайте полезную статью с полным чекапом и скидкой на него. "
+        "По ссылке также можете забрать подарок - 15 000 бонусов 🎁\n"
+        "Жми 👇🏻",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="ПОЛУЧИТЬ", callback_data="checkup_get_article")]
+        ])
+    )
+
+
+@dp.callback_query(F.data == "checkup_get_article")
+async def handle_checkup_get_article(callback: types.CallbackQuery):
+    logger.info(f"📊 FUNNEL [checkup_article_opened] user={callback.from_user.id}")
+    await callback.message.answer(
+        "Отлично! Нажимайте на кнопку ниже, чтобы получить инструкцию👇🏻",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📄 Получить инструкцию", url=CHECKUP_ARTICLE_URL)]
+        ])
+    )
+    try:
+        await callback.answer()
+    except Exception:
+        pass
 
 
 @dp.message(F.text.lower() == "бокс")
@@ -1854,6 +1892,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
     await message.answer(
         "✅ <b>Диагностика завершена.</b>\n\n"
         "Теперь проверьте свой первый крем — это займёт 30 секунд 👇",
+        reply_markup=get_mode_keyboard(),
         parse_mode="HTML"
     )
 
@@ -2649,7 +2688,7 @@ async def menu_mariya(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-KNOWN_BUTTONS = {"📋 Меню", "🔍 Проверить новое средство", "💬 Задать вопрос Марии"}
+KNOWN_BUTTONS = {"📋 Меню", "🔍 Проверить новое средство", "💬 Задать вопрос Марии", CHECKUP_BTN_TEXT}
 
 @dp.message(F.text & ~F.text.startswith('/') & ~F.text.in_(KNOWN_BUTTONS))
 async def handle_text_no_state(message: types.Message, state: FSMContext):
