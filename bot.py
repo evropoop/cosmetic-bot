@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from prodamus_hmac import HmacHelper, flatten_form, parse_bracket_form
 from aiogram import Bot, Dispatcher, F, types, BaseMiddleware
 from aiogram.filters import CommandStart, StateFilter
+from aiogram.filters.chat_member_updated import ChatMemberUpdatedFilter, JOIN_TRANSITION, LEAVE_TRANSITION
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -775,6 +776,26 @@ async def channel_worker():
         except Exception as e:
             logger.error(f"Channel worker error: {e}")
         await asyncio.sleep(3600)
+
+
+@dp.chat_member(ChatMemberUpdatedFilter(JOIN_TRANSITION))
+async def on_user_joined_channel(event: types.ChatMemberUpdated):
+    if CHANNEL_ID and event.chat.id == CHANNEL_ID:
+        user = event.new_chat_member.user
+        logger.info(
+            f"🎉 ПОЛЬЗОВАТЕЛЬ ВСТУПИЛ В ЗАКРЫТЫЙ КАНАЛ: "
+            f"user_id={user.id} | name='{user.full_name}' | username=@{user.username or 'none'}"
+        )
+
+
+@dp.chat_member(ChatMemberUpdatedFilter(LEAVE_TRANSITION))
+async def on_user_left_channel(event: types.ChatMemberUpdated):
+    if CHANNEL_ID and event.chat.id == CHANNEL_ID:
+        user = event.old_chat_member.user
+        logger.info(
+            f"🚪 ПОЛЬЗОВАТЕЛЬ ПОКИНУЛ ЗАКРЫТЫЙ КАНАЛ: "
+            f"user_id={user.id} | name='{user.full_name}' | username=@{user.username or 'none'}"
+        )
 
 
 async def retention_worker():
@@ -2382,6 +2403,7 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
                 f"src=analyze_photos | ocr_len={len(extracted_text)} | "
                 f"text={extracted_text[:60]!r}"
             )
+            await state.update_data(photo_urls=[])
             await loading_msg.edit_text(
                 "Не удалось распознать полный список компонентов (INCI).\n\n"
                 "Пожалуйста, убедитесь, что на фото четко виден текст после слова Состав / Ingredients "
@@ -2518,29 +2540,31 @@ async def analyze_photos(callback: types.CallbackQuery, state: FSMContext):
 async def process_composition(message: types.Message, state: FSMContext):
     telegram_id = message.from_user.id
     user = db.get_or_create_user(telegram_id)
+    text = (message.text or "").strip()
+
+    # Если нажата кнопка нижнего меню — перенаправляем на соответствующий обработчик
+    if text == "📋 Меню":
+        await menu_handler(message, state)
+        return
+    if text == "🔍 Проверить новое средство":
+        await gather_care_start(message, state)
+        return
+    if text == CHECKUP_BTN_TEXT:
+        await handle_checkup_menu_btn(message)
+        return
+
     data = await state.get_data()
 
+    # Если пользователь отправляет текст состава, сбрасываем старые фото
     if data.get("photo_urls"):
-        await message.answer(
-            "📸 У вас уже есть загруженные фото. Нажмите «Анализировать» или отправьте ещё фото.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔬 Анализировать", callback_data="analyze_photos")]
-            ])
-        )
-        return
-
-    category_fsm = data.get("category", None)
-
-    if not category_fsm:
-        await message.answer("⚠️ Сначала выберите категорию средства.", reply_markup=get_category_4_keyboard())
-        return
+        await state.update_data(photo_urls=[])
 
     if not check_user_limits(user):
         db.schedule_retention_notifications(telegram_id)
         await send_paywall(message)
         return
 
-    composition = sanitize_input(message.text or "", max_len=2000)
+    composition = sanitize_input(text, max_len=2000)
 
     if not validate_inci_text(composition):
         logger.info(
@@ -2554,6 +2578,18 @@ async def process_composition(message: types.Message, state: FSMContext):
             "либо пришлите фото этикетки.\n\n"
             "Ваша попытка не списалась!"
         )
+        return
+
+    category_fsm = data.get("category", None)
+
+    if not category_fsm:
+        logger.info(f"📊 FUNNEL [composition_sent_text] user={telegram_id} | len={len(composition)}")
+        await state.update_data(pending_inci=composition, photo_urls=[])
+        await message.answer(
+            "Состав получен! Уточните, к какой категории относится это средство, чтобы я применил нужную матрицу 👇",
+            reply_markup=get_category_4_keyboard()
+        )
+        await state.set_state(Form.waiting_for_category)
         return
 
     await perform_analysis(message, state, user, composition, category_fsm)
