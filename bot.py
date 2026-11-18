@@ -275,7 +275,7 @@ def get_user_tariff(user: dict) -> str:
     return "free"
 
 
-CHECKUP_BTN_TEXT = "🎁 Чекап + 15 000 бонусов"
+CHECKUP_BTN_TEXT = "🎁 Чекап + 20 000 бонусов"
 CHECKUP_ARTICLE_URL = "https://telegra.ph/Kak-projti-polnyj-chekap-na-50-pokazatelej-za-1-990--vmesto-4-422--i-poluchit-20-000-bonusov-11-17"
 
 
@@ -1320,13 +1320,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
     )
 
 
-@dp.message(StateFilter("*"), F.text == CHECKUP_BTN_TEXT)
+@dp.message(StateFilter("*"), F.text.in_([CHECKUP_BTN_TEXT, "🎁 Чекап + 15 000 бонусов"]))
 async def handle_checkup_menu_btn(message: types.Message):
     logger.info(f"📊 FUNNEL [checkup_btn_clicked] user={message.from_user.id}")
     await message.answer(
         "Приветствую 🫂\n"
         "Забирайте полезную статью с полным чекапом и скидкой на него. "
-        "По ссылке также можете забрать подарок - 15 000 бонусов 🎁\n"
+        "По ссылке также можете забрать подарок - 20 000 бонусов 🎁\n"
         "Жми 👇🏻",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="ПОЛУЧИТЬ", url=CHECKUP_ARTICLE_URL)]
@@ -2549,7 +2549,7 @@ async def process_composition(message: types.Message, state: FSMContext):
     if text == "🔍 Проверить новое средство":
         await gather_care_start(message, state)
         return
-    if text == CHECKUP_BTN_TEXT:
+    if text in (CHECKUP_BTN_TEXT, "🎁 Чекап + 15 000 бонусов"):
         await handle_checkup_menu_btn(message)
         return
 
@@ -2800,7 +2800,7 @@ async def menu_mariya(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-KNOWN_BUTTONS = {"📋 Меню", "🔍 Проверить новое средство", "💬 Задать вопрос Марии", CHECKUP_BTN_TEXT}
+KNOWN_BUTTONS = {"📋 Меню", "🔍 Проверить новое средство", "💬 Задать вопрос Марии", CHECKUP_BTN_TEXT, "🎁 Чекап + 15 000 бонусов"}
 
 @dp.message(F.text & ~F.text.startswith('/') & ~F.text.in_(KNOWN_BUTTONS))
 async def handle_text_no_state(message: types.Message, state: FSMContext):
