@@ -1323,25 +1323,39 @@ async def cmd_start(message: types.Message, state: FSMContext):
 @dp.message(StateFilter("*"), F.text.in_([CHECKUP_BTN_TEXT, "🎁 Чекап + 15 000 бонусов"]))
 async def handle_checkup_menu_btn(message: types.Message):
     logger.info(f"📊 FUNNEL [checkup_btn_clicked] user={message.from_user.id}")
+    text = (
+        "Приветствую 🫂\n\n"
+        "Забирайте полезную статью с полным чекапом на 50 показателей со скидкой (1 990 ₽ вместо 4 422 ₽) "
+        "и 20 000 бонусов в подарок 🎁\n\n"
+        "🎟 Промокод на скидку: <code>SKINPROTOKOL55</code>\n"
+        "<i>(нажмите на промокод, чтобы скопировать)</i>\n\n"
+        "🎁 Код на 20 000 бонусов: <code>MRSL-2026</code>\n"
+        "<i>(нажмите на код, чтобы скопировать)</i>\n\n"
+        "Пошаговая инструкция — по кнопке ниже 👇🏻"
+    )
     await message.answer(
-        "Приветствую 🫂\n"
-        "Забирайте полезную статью с полным чекапом и скидкой на него. "
-        "По ссылке также можете забрать подарок - 20 000 бонусов 🎁\n"
-        "Жми 👇🏻",
+        text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="ПОЛУЧИТЬ", url=CHECKUP_ARTICLE_URL)]
-        ])
+        ]),
+        parse_mode="HTML"
     )
 
 
 @dp.callback_query(F.data == "checkup_get_article")
 async def handle_checkup_get_article(callback: types.CallbackQuery):
     logger.info(f"📊 FUNNEL [checkup_article_opened] user={callback.from_user.id}")
+    text = (
+        "Отлично! Нажимайте на кнопку ниже, чтобы получить инструкцию👇🏻\n\n"
+        "🎟 Промокод на скидку: <code>SKINPROTOKOL55</code> <i>(нажмите, чтобы скопировать)</i>\n"
+        "🎁 Код на 20 000 бонусов: <code>MRSL-2026</code> <i>(нажмите, чтобы скопировать)</i>"
+    )
     await callback.message.answer(
-        "Отлично! Нажимайте на кнопку ниже, чтобы получить инструкцию👇🏻",
+        text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📄 Получить инструкцию", url=CHECKUP_ARTICLE_URL)]
-        ])
+        ]),
+        parse_mode="HTML"
     )
     try:
         await callback.answer()
