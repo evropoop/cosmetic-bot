@@ -3082,7 +3082,8 @@ async def prodamus_webhook(request: web.Request):
         # Получаем плоские данные из POST-запроса
         post_data = dict(await request.post())
         logger.info(
-            f"📥 Prodamus webhook received: order_id={post_data.get('order_id')!r}, "
+            f"📥 Prodamus webhook received: order_num={post_data.get('order_num')!r}, "
+            f"order_id={post_data.get('order_id')!r}, "
             f"payment_status={post_data.get('payment_status')!r}"
         )
         received_sign = (
@@ -3105,7 +3106,16 @@ async def prodamus_webhook(request: web.Request):
 
         # Если оплата успешна (ключ может быть payment_status или status - обычно payment_status)
         if post_data.get("payment_status") == "success":
-            order_id = post_data.get("order_id")
+            # В Продамус наш ID заказа (user-<tid>-<tariff>-<ts>) возвращается в поле 'order_num'
+            # (а в 'order_id' Продамус передает свой собственный UUID платежа)
+            order_id = ""
+            for candidate in [post_data.get("order_num"), post_data.get("order_id")]:
+                if candidate and str(candidate).startswith("user-"):
+                    order_id = str(candidate)
+                    break
+            if not order_id:
+                order_id = str(post_data.get("order_num") or post_data.get("order_id") or "")
+
             if order_id and not db.check_payment_exists(order_id):
                 # order_id = "user-<tid>-<tariff>-<ts>"  (split by "-")
                 parts = order_id.split("-")
