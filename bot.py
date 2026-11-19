@@ -2012,25 +2012,14 @@ async def finish_survey(message: types.Message, state: FSMContext):
 
     await asyncio.sleep(0.5)
     await message.answer(
-        "✅ <b>Диагностика завершена.</b>\n\n"
-        "Теперь проверьте свой первый крем — это займёт 30 секунд 👇",
-        reply_markup=get_mode_keyboard(),
-        parse_mode="HTML"
-    )
-
-    await asyncio.sleep(0.5)
-    await message.answer(
         "<b>Что делать сейчас:</b>\n"
         "1. Открой карточку своего крема на Золотом Яблоке, Ozon или WB\n"
         "2. Найди раздел «Состав» / «Ingredients» (мелкий шрифт на упаковке)\n"
         "3. Сфотографируй или скопируй список компонентов\n"
         "4. Отправь сюда в чат\n\n"
         "📋 <b>Пример:</b> <code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
-        "Название средства писать <b>не нужно</b> — только список INCI.\n\n"
-        "💡 <i>Если крема нет под рукой — нажмите кнопку ниже, чтобы увидеть пример разбора:</i>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🧪 Попробовать на примере (Крем с Ниацинамидом)", callback_data="demo_test_scan")]
-        ]),
+        "Название средства писать <b>не нужно</b> — только список INCI.",
+        reply_markup=get_mode_keyboard(),
         parse_mode="HTML"
     )
 
@@ -2073,19 +2062,7 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "demo_test_scan")
 async def handle_demo_test_scan(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer("Запускаю демо-разбор состава...")
-    sample_inci = (
-        "Aqua, Niacinamide, Glycerin, Cetearyl Alcohol, Caprylic/Capric Triglyceride, "
-        "Ceramide NP, Ceramide AP, Ceramide EOP, Phytosphingosine, Cholesterol, "
-        "Sodium Hyaluronate, Xanthan Gum, Phenoxyethanol, Ethylhexylglycerin"
-    )
-    user = db.get_or_create_user(callback.from_user.id)
-    await callback.message.answer(
-        "🧪 <b>Демонстрационный разбор популярного крема</b> (CeraVe с церамидами и ниацинамидом):\n\n"
-        f"<code>{sample_inci}</code>",
-        parse_mode="HTML"
-    )
-    await perform_analysis(callback.message, state, user, sample_inci, "care", is_demo=True)
+    await callback.answer("Отправьте состав вашего средства в чат 👇", show_alert=True)
 
 
 async def _check_bad_bottles_alarm(message: types.Message, telegram_id: int, user_name: str):
@@ -2108,7 +2085,7 @@ async def _check_bad_bottles_alarm(message: types.Message, telegram_id: int, use
         await message.answer(catastrophe_text, reply_markup=catastrophe_kb, parse_mode="HTML")
 
 
-async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str, is_demo: bool = False):
+async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str):
     telegram_id = user["telegram_id"]
     user_name = await _resolve_user_name(message, state, user)
 
@@ -2124,15 +2101,15 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
 
     async with lock:
         user = db.get_or_create_user(telegram_id)
-        if not is_demo and not check_user_limits(user):
+        if not check_user_limits(user):
             db.schedule_retention_notifications(telegram_id)
             await send_paywall(message)
             return
 
-        tariff = "free" if is_demo else get_user_tariff(user)
-        logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}, is_demo={is_demo}")
+        tariff = get_user_tariff(user)
+        logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}")
 
-        if not is_demo and telegram_id not in UNLIMITED_IDS:
+        if telegram_id not in UNLIMITED_IDS:
             limit_status = db.check_rate_limit(telegram_id)
             if limit_status:
                 if limit_status == "day":
@@ -2141,8 +2118,7 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
                     await message.answer("⏳ Слишком много запросов. Пожалуйста, подождите немного.")
                 return
 
-        if not is_demo:
-            db.log_scan(telegram_id)
+        db.log_scan(telegram_id)
         tags = user.get("user_tags", [])
 
         # ⚠️ STATEFUL только для tariff="protocol" (unlimited + реальный 2500). Free/Audit — stateless.
@@ -2180,40 +2156,29 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
                 return
 
             record_id = None
-            if not is_demo and category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
+            if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
                 record_id = db.save_approved_product(telegram_id, composition, status, category, stage, actives)
 
-            if not is_demo:
-                db.save_analysis(telegram_id, composition, clean_text, status)
-                await state.clear()
-                try:
-                    db.cancel_single_notification(telegram_id, "no_composition_6h")
-                except Exception:
-                    pass
+            db.save_analysis(telegram_id, composition, clean_text, status)
+            await state.clear()
+            try:
+                db.cancel_single_notification(telegram_id, "no_composition_6h")
+            except Exception:
+                pass
 
-                if status in ["bad", "hidden_threat"]:
-                    db.increment_bad_bottles(telegram_id)
-                else:
-                    db.reset_bad_bottles(telegram_id)
+            if status in ["bad", "hidden_threat"]:
+                db.increment_bad_bottles(telegram_id)
+            else:
+                db.reset_bad_bottles(telegram_id)
 
-            if not is_demo and status in ["bad", "hidden_threat"]:
+            if status in ["bad", "hidden_threat"]:
                 await _check_bad_bottles_alarm(message, telegram_id, user_name)
 
             is_unlimited = (telegram_id in UNLIMITED_IDS)
             has_sub = db.has_active_subscription(user)
             is_protocol = is_unlimited or (user.get("scanner_tariff") == "protocol_2500" and has_sub)
 
-            if is_demo:
-                await loading_msg.edit_text(clean_text)
-                await message.answer(
-                    "💡 <b>Это был демонстрационный разбор.</b> Ваш бесплатный лимит не списан!\n\n"
-                    "Теперь проверьте свой крем. Выберите категорию средства 👇",
-                    reply_markup=get_category_4_keyboard(),
-                    parse_mode="HTML"
-                )
-                await state.set_state(Form.waiting_for_composition)
-                return
-            elif is_unlimited:
+            if is_unlimited:
                 await loading_msg.edit_text(clean_text)
                 await message.answer("👑 Режим безлимита: проверок не ограничено.")
             elif not has_sub:
