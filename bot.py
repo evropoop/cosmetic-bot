@@ -275,7 +275,17 @@ def get_user_tariff(user: dict) -> str:
     return "free"
 
 
-CHECKUP_BTN_TEXT = "🎁 Чекап + 20 000 бонусов"
+CHECKUP_BTN_TEXT = "🎁 Чекап за 1 499 рублей"
+CHECKUP_VARIANTS = (
+    CHECKUP_BTN_TEXT,
+    "🎁 Чекап за 1 499 ₽",
+    "🎁 Чекап за 1499 ₽",
+    "🎁 Чекап за 1 499 рублей",
+    "🎁 Чекап за 1499 рублей",
+    "🎁 Чекап за 1499рублей",
+    "🎁 Чекап + 20 000 бонусов",
+    "🎁 Чекап + 15 000 бонусов",
+)
 CHECKUP_ARTICLE_URL = "https://telegra.ph/Kak-projti-polnyj-chekap-na-50-pokazatelej-za-1-990--vmesto-4-422--i-poluchit-20-000-bonusov-11-17"
 
 
@@ -1338,13 +1348,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
     )
 
 
-@dp.message(StateFilter("*"), F.text.in_([CHECKUP_BTN_TEXT, "🎁 Чекап + 15 000 бонусов"]))
+@dp.message(StateFilter("*"), F.text.in_(CHECKUP_VARIANTS))
 async def handle_checkup_menu_btn(message: types.Message):
     logger.info(f"📊 FUNNEL [checkup_btn_clicked] user={message.from_user.id}")
     text = (
         "Приветствую 🫂\n\n"
-        "Забирайте полезную статью с полным чекапом на 50 показателей со скидкой (1 990 ₽ вместо 4 422 ₽) "
-        "и 20 000 бонусов в подарок 🎁\n\n"
+        "Забирайте полезную статью с полным чекапом на 50 показателей со скидкой (всего за 1 499 ₽ вместо 4 422 ₽) 🎁\n\n"
         "🎟 Промокод на скидку: <code>SKINPROTOKOL55</code>\n"
         "<i>(нажмите на промокод, чтобы скопировать)</i>\n\n"
         "🎁 Код на 20 000 бонусов: <code>MRSL-2026</code>\n"
@@ -1354,7 +1363,7 @@ async def handle_checkup_menu_btn(message: types.Message):
     await message.answer(
         text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="ПОЛУЧИТЬ", url=CHECKUP_ARTICLE_URL)]
+            [InlineKeyboardButton(text="ПОЛУЧИТЬ ЧЕКАП (1 499 ₽)", url=CHECKUP_ARTICLE_URL)]
         ]),
         parse_mode="HTML"
     )
@@ -1364,14 +1373,14 @@ async def handle_checkup_menu_btn(message: types.Message):
 async def handle_checkup_get_article(callback: types.CallbackQuery):
     logger.info(f"📊 FUNNEL [checkup_article_opened] user={callback.from_user.id}")
     text = (
-        "Отлично! Нажимайте на кнопку ниже, чтобы получить инструкцию👇🏻\n\n"
+        "Отлично! Нажимайте на кнопку ниже, чтобы получить чекап за 1 499 ₽👇🏻\n\n"
         "🎟 Промокод на скидку: <code>SKINPROTOKOL55</code> <i>(нажмите, чтобы скопировать)</i>\n"
         "🎁 Код на 20 000 бонусов: <code>MRSL-2026</code> <i>(нажмите, чтобы скопировать)</i>"
     )
     await callback.message.answer(
         text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📄 Получить инструкцию", url=CHECKUP_ARTICLE_URL)]
+            [InlineKeyboardButton(text="📄 Получить чекап за 1 499 ₽", url=CHECKUP_ARTICLE_URL)]
         ]),
         parse_mode="HTML"
     )
@@ -2573,7 +2582,7 @@ async def process_composition(message: types.Message, state: FSMContext):
     if text == "🔍 Проверить новое средство":
         await gather_care_start(message, state)
         return
-    if text in (CHECKUP_BTN_TEXT, "🎁 Чекап + 15 000 бонусов"):
+    if text in CHECKUP_VARIANTS:
         await handle_checkup_menu_btn(message)
         return
 
@@ -2831,7 +2840,7 @@ async def menu_mariya(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-KNOWN_BUTTONS = {"📋 Меню", "🔍 Проверить новое средство", "💬 Задать вопрос Марии", CHECKUP_BTN_TEXT, "🎁 Чекап + 15 000 бонусов"}
+KNOWN_BUTTONS = {"📋 Меню", "🔍 Проверить новое средство", "💬 Задать вопрос Марии"}.union(CHECKUP_VARIANTS)
 
 @dp.message(F.text & ~F.text.startswith('/') & ~F.text.in_(KNOWN_BUTTONS))
 async def handle_text_no_state(message: types.Message, state: FSMContext):
