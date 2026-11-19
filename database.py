@@ -412,12 +412,51 @@ def save_payment(payment_id: str, telegram_id: int, amount: int, tariff_type: st
 
 
 def update_user_subscription(telegram_id: int, tariff: str, days: int = 30):
-    expires_at = (datetime.now() + timedelta(days=days)).isoformat()
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
+        "SELECT scanner_tariff, scanner_expires_at FROM users WHERE telegram_id = ?",
+        (telegram_id,)
+    )
+    row = cursor.fetchone()
+
+    now = datetime.now()
+    base_date = now
+    current_tariff = "none"
+
+    if row:
+        current_tariff = row[0] or "none"
+        exp_str = row[1]
+        if exp_str:
+            try:
+                current_exp = datetime.fromisoformat(exp_str)
+                # Если текущая подписка еще активна — стакаем (прибавляем к остатку)
+                if current_exp > now:
+                    base_date = current_exp
+            except Exception:
+                pass
+
+    new_expires_dt = base_date + timedelta(days=days)
+    expires_at = new_expires_dt.isoformat()
+
+    # Иерархия тарифов (чтобы при покупке доп. дней не понижать уровень тарифа)
+    TARIFF_RANKS = {
+        "none": 0,
+        "free": 0,
+        "trial_99": 1,
+        "audit_1000": 2,
+        "protocol_2500": 3,
+        "pdf_4900": 4
+    }
+
+    if base_date > now and TARIFF_RANKS.get(current_tariff, 0) > TARIFF_RANKS.get(tariff, 0):
+        target_tariff = current_tariff
+    else:
+        target_tariff = tariff
+
+    cursor.execute(
         "UPDATE users SET scanner_tariff = ?, scanner_expires_at = ? WHERE telegram_id = ?",
-        (tariff, expires_at, telegram_id)
+        (target_tariff, expires_at, telegram_id)
     )
     conn.commit()
     conn.close()

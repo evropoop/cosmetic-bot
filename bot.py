@@ -1215,12 +1215,15 @@ async def handle_payment_return(message: types.Message):
             db.cancel_retention_notifications(telegram_id)
             db.schedule_renewal_notification(telegram_id, "trial_99", new_expires)
             _label = "Тест-драйв"
+            _exp_str = datetime.fromisoformat(new_expires).strftime("%d.%m.%Y %H:%M")
             await message.answer(
-                "🎉 Оплата тест-драйва (99 ₽) успешно получена! Доступ к сканеру активирован на 3 дня.\n\n"
-                "Проверьте свой профиль командой /profile или сразу отправьте состав средства 👇",
+                f"🎉 Оплата тест-драйва (99 ₽) успешно получена!\n\n"
+                f"Доступ к сканеру продлён и активен до <b>{_exp_str}</b>.\n"
+                f"Проверьте свой профиль командой /profile или сразу отправьте состав средства 👇",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔍 Проверить средство", callback_data="btn_check_new")]
-                ])
+                ]),
+                parse_mode="HTML"
             )
 
         else:
@@ -1228,12 +1231,15 @@ async def handle_payment_return(message: types.Message):
             db.cancel_retention_notifications(telegram_id)
             db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
             _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
+            _exp_str = datetime.fromisoformat(new_expires).strftime("%d.%m.%Y")
             await message.answer(
-                "🎉 Оплата успешно получена! Доступ к алгоритму активирован на 30 дней.\n\n"
-                "Проверьте свой профиль командой /profile или сразу отправьте состав средства 👇",
+                f"🎉 Оплата успешно получена!\n\n"
+                f"Доступ к алгоритму продлён и активен до <b>{_exp_str}</b>.\n"
+                f"Проверьте свой профиль командой /profile или сразу отправьте состав средства 👇",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔍 Проверить средство", callback_data="btn_check_new")]
-                ])
+                ]),
+                parse_mode="HTML"
             )
 
         # Выдача одноразовой ссылки в закрытый канал (для всех тарифов)
@@ -3159,9 +3165,11 @@ async def prodamus_webhook(request: web.Request):
                         db.schedule_renewal_notification(telegram_id, "trial_99", new_expires)
                         _label = "Тест-драйв"
                         try:
+                            _exp_str = datetime.fromisoformat(new_expires).strftime("%d.%m.%Y %H:%M")
                             await bot.send_message(
                                 telegram_id,
-                                "🎉 Оплата тест-драйва получена! Сканер активирован на 3 дня без ограничений. Проверьте /profile."
+                                f"🎉 Оплата тест-драйва получена! Сканер продлён и активен до <b>{_exp_str}</b> без ограничений. Проверьте /profile.",
+                                parse_mode="HTML"
                             )
                         except Exception:
                             pass
@@ -3171,9 +3179,11 @@ async def prodamus_webhook(request: web.Request):
                         db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
                         _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
                         try:
+                            _exp_str = datetime.fromisoformat(new_expires).strftime("%d.%m.%Y")
                             await bot.send_message(
                                 telegram_id,
-                                "🎉 Оплата успешно получена! Доступ активирован на 30 дней. Проверьте /profile."
+                                f"🎉 Оплата успешно получена! Доступ продлён и активен до <b>{_exp_str}</b>. Проверьте /profile.",
+                                parse_mode="HTML"
                             )
                         except Exception:
                             pass
