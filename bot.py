@@ -357,13 +357,18 @@ WARMUP_TEXT = (
 
 
 async def send_paywall(message: types.Message):
-    logger.info(f"📊 FUNNEL [paywall_shown] user={message.chat.id}")
+    tid = message.chat.id
+    logger.info(f"📊 FUNNEL [paywall_shown] user={tid}")
+    user_name = db.get_user_name(tid) or "Клиент"
+    text_q = f"Здравствуйте, Мария! Я оплатил(а) доступ, но бот не открылся. Мой ID: #{tid}, Имя: {user_name}."
+    url_q = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_q)}"
     await message.answer(
         PAYWALL_TEXT,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
             [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💬 Уже оплатили? Написать Марии", url=url_q)]
         ]),
         parse_mode="HTML"
     )
@@ -2827,6 +2832,26 @@ async def handle_text_no_state(message: types.Message, state: FSMContext):
 
     if user.get("survey_done", 0) == 0:
         await message.answer("Пожалуйста, сначала пройдите короткую диагностику.", reply_markup=get_start_keyboard())
+        return
+
+    # Перехват сообщений об оплате (если клиент оплатил, но закрыл вкладку эквайринга)
+    lower_text = (message.text or "").strip().lower()
+    paid_keywords = ["оплатил", "оплатила", "оплачено", "чек", "оплата", "деньги списали", "я оплатил", "я оплатила"]
+    if any(k in lower_text for k in paid_keywords) and len(lower_text) < 40:
+        user_name = db.get_user_name(telegram_id) or "Клиент"
+        text_q = f"Здравствуйте, Мария! Я оплатил(а) доступ, но бот не открылся автоматически. Мой ID: #{telegram_id}, Имя: {user_name}."
+        url_q = f"https://t.me/{MARIYA_USERNAME}?text={urllib.parse.quote(text_q)}"
+        await message.answer(
+            "⏳ <b>Вижу ваше сообщение об оплате!</b>\n\n"
+            "Если вы только что оплатили на странице платёжной системы, обязательно нажмите на ней кнопку "
+            "<b>«Вернуться в магазин»</b> (или «Назад в магазин») — она мгновенно передаст подтверждение в бота.\n\n"
+            "Если вы уже закрыли вкладку оплаты или возникла задержка банка — нажмите кнопку ниже, "
+            "чтобы написать Марии, и мы вручную подключим вам доступ за 1 минуту 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💬 Написать Марии (ручная активация)", url=url_q)]
+            ]),
+            parse_mode="HTML"
+        )
         return
 
     if not check_user_limits(user):
