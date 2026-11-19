@@ -338,7 +338,7 @@ PAYWALL_TEXT = (
     "▪️ Быстрый старт: проверьте всю текущую косметичку на полке прямо сейчас.\n"
     "▪️ Безлимитный сканер: выявит скрытые угрозы, комедогенные базы и пустышки.\n\n"
     "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b>\n"
-    "▪️ 33 рубля в день — надежная защита кожи и бюджета на целый месяц.\n"
+    "▪️ 33 рубля в день — надежная защита кожи и бюджета на 30 дней.\n"
     "▪️ Проверка любых покупок в Золотом Яблоке, WB и Ozon до оплаты.\n\n"
     "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b>\n"
     "▫️ Интеллектуальная память: алгоритм запоминает и анализирует весь ваш уход целиком.\n"
@@ -450,7 +450,7 @@ RETENTION_TEXTS = {
     "5d": "🤖 {user_name}, наверняка вы снова смотрели на косметику на маркетплейсах. Красивые обещания часто маскируют дешевую базу и пустышки. Не покупайте новые средства вслепую. Загрузите составы мне перед оплатой, и я уберегу вас от пустой траты денег.",
     "7d": "🤖 Прошла неделя. За это время вы нанесли свой привычный уход минимум 14 раз. Если мы не исключили из вашей системы жесткие ПАВы или конфликтные активы, вы значительно усилили дефицит липидов. Доступ к системе ждет активации.",
     "14d": "🤖 {user_name}, если у вас нет времени самостоятельно сканировать каждый состав — снимите с себя эту задачу. Создатель моего алгоритма, Мария, может собрать для вас индивидуальный протокол с нуля или отправить готовый бокс.",
-    "30d": "🤖 Прошел ровно месяц. 28–35 дней — это полный цикл обновления эпидермиса. Если вы устали действовать вслепую и готовы выстроить грамотную, физиологичную базу — двери лаборатории открыты.",
+    "30d": "🤖 Прошло ровно 30 дней. 28–35 дней — это полный цикл обновления эпидермиса. Если вы устали действовать вслепую и готовы выстроить грамотную, физиологичную базу — двери лаборатории открыты.",
     "42d": "🤖 Я — строгий алгоритм, который бракует средства без поблажек. Если вы устали искать банки самостоятельно и вам нужен человеческий подход — обратитесь к моей создательнице, косметологу-эстетисту Марии. Она соберет готовый физиологичный бокс под вашу кожу.",
     "60d": "🤖 Прошло ровно два месяца с вашего первого визита. За это время эпидермис полностью обновился дважды. База, которую вы использовали всё это время, могла исчерпать свой ресурс. Пришло время провести жесткий аудит вашей системы и скорректировать протокол.",
     "90d": "🤖 {user_name}, прошло 3 месяца. Это критический срок (PAO) для большинства активных сывороток. Пептиды деградируют, ретинол теряет стабильность. Наносить такую косметику бесполезно, а иногда и опасно. Ваша система ухода требует генеральной ревизии. Запускаем алгоритм?",
@@ -463,7 +463,7 @@ RETENTION_TEXTS = {
     "abandoned_cart": "🤖 {user_name}, вижу, что вы начали оформление доступа к сканеру, но оплата не завершилась.\n\nЕсли возникли технические сложности, не проходит зарубежная карта или есть сомнения по формату ухода — напишите напрямую создательнице алгоритма Марии, мы поможем и сохраним за вами условия 👇",
     "renewal_trial": "🤖 {user_name}, завтра ваш 3-дневный тест-драйв сканера завершается.\nЕсли на вашей полке еще остались непроверенные средства или вы планируете покупки в магазине — продлите «Аудит» (33 ₽/день), чтобы сканер продолжал защищать вашу кожу от ошибок и пустышек.",
     "renewal_audit": "🤖 {user_name}, завтра ваш доступ к сканирующему модулю закрывается.\nНе покупайте новые средства вслепую. Одно средство с жесткими ПАВами или комедогенной базой может спровоцировать воспаление и откатить результаты назад. Продлите «Аудит», чтобы я продолжил жестко фильтровать ваши покупки.\n⬆️ Или перейдите на следующий уровень: выберите «Сборку протокола». Я включу интеллектуальную память, запомню все ваши средства и выстрою из них единую безопасную систему.",
-    "renewal_protocol": "🤖 {user_name}, наш месяц работы подходит к концу. За 28–35 дней эпидермис проходит полный цикл обновления. Завтра ваш доступ к алгоритму закрывается.\nДавайте подведем итоги. Отметьте ниже этапы ухода, которые мы с вами уже успели закрыть безопасными, одобренными средствами:",
+    "renewal_protocol": "🤖 {user_name}, наши 30 дней работы подходят к концу. За 28–35 дней эпидермис проходит полный цикл обновления. Завтра ваш доступ к алгоритму закрывается.\nДавайте подведем итоги. Отметьте ниже этапы ухода, которые мы с вами уже успели закрыть безопасными, одобренными средствами:",
     "reactivation_30d": "🤖 {user_name}, срок вашего доступа истек. Сканирующий модуль отключен. Ваша текущая архитектура ухода сохранена и переведена в архив. Когда потребуется выбрать новые средства — алгоритм будет готов распаковать архив и проверить составы.",
     "reactivation_44d": "🤖 {user_name}, если самостоятельный подбор отнимает слишком много времени — снимите с себя эту задачу. Создатель алгоритма, Мария, собирает Индивидуальные Боксы вручную. Вы получаете готовую систему без необходимости вникать в химию.",
     "reactivation_75d": "🤖 {user_name}, согласно статистике расхода, за 1,5–2 месяца базовая сыворотка или крем подходят к концу. Если вы планируете покупку новых средств, помните: не покупать вслепую. Доступ к лаборатории можно возобновить в любую минуту.",
@@ -974,7 +974,6 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"Одобренных средств в вашей схеме: {count} шт."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
             [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")]
         ])
         await message.answer(text, reply_markup=kb)
@@ -984,10 +983,15 @@ async def cmd_profile(message: types.Message, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n"
-            f"Выберите тариф в меню /tariffs, чтобы включить сканер составов."
+            f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n\n"
+            f"Выберите комфортный формат работы:"
         )
-        await message.answer(text)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+        ])
+        await message.answer(text, reply_markup=kb)
 
     elif user.get("scanner_tariff") == "trial_99":
         exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y %H:%M')
@@ -996,11 +1000,11 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"Ваши диагностические маркеры: {tags_str}\n"
             f"Тариф: ⚡ Тест-драйв сканера (3 дня)\n"
             f"Активен до: {exp_date}\n\n"
-            f"Продлить на месяц: /tariffs"
+            f"Продлить на 30 дней:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
-            [InlineKeyboardButton(text="💳 Продлить на месяц (1 000 ₽)", callback_data="pay_audit_30")]
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1010,10 +1014,12 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
             f"Тариф: 💳 Аудит (Безлимитный сканер)\n"
-            f"Активен до: {exp_date}"
+            f"Активен до: {exp_date}\n\n"
+            f"Продлить или повысить тариф:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1028,8 +1034,8 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"Одобренных средств в вашей схеме: {count} шт."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
-            [InlineKeyboardButton(text="🗂 Моя собранная база (Просмотр / Удаление)", callback_data="btn_my_base")]
+            [InlineKeyboardButton(text="🗂 Моя собранная база (Просмотр / Удаление)", callback_data="btn_my_base")],
+            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1042,8 +1048,8 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"Активен до: {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
-            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
+            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1055,7 +1061,8 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"Статус доступа: Активен до {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1127,7 +1134,7 @@ async def cmd_tariffs(message: types.Message, state: FSMContext = None):
         "▪️ Быстрый тест: разберите всю текущую косметичку на полке прямо сейчас.\n"
         "▪️ Безлимитный сканер: выявит скрытые угрозы, комедогенные базы и пустышки.\n\n"
         "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b>\n"
-        "▪️ 33 рубля в день — надежная защита кожи и бюджета на целый месяц.\n"
+        "▪️ 33 рубля в день — надежная защита кожи и бюджета на 30 дней.\n"
         "▪️ Безлимитная проверка любых покупок в Золотом Яблоке, WB и Ozon до оплаты.\n\n"
         "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b>\n"
         "▫️ Интеллектуальная память: алгоритм запоминает и анализирует весь ваш уход целиком.\n"
@@ -2008,18 +2015,21 @@ async def finish_survey(message: types.Message, state: FSMContext):
     # === END БЛОК 4 ===
     
     logger.info(f"📊 FUNNEL [diagnostics_complete] user={telegram_id}")
-    await message.answer(diagnosis_text.strip())
+    await message.answer(diagnosis_text.strip(), reply_markup=get_mode_keyboard())
 
     await asyncio.sleep(0.5)
     await message.answer(
         "<b>Что делать сейчас:</b>\n"
-        "1. Открой карточку своего крема на Золотом Яблоке, Ozon или WB\n"
+        "1. Открой карточку своего средства на Золотом Яблоке, Ozon или WB\n"
         "2. Найди раздел «Состав» / «Ingredients» (мелкий шрифт на упаковке)\n"
         "3. Сфотографируй или скопируй список компонентов\n"
         "4. Отправь сюда в чат\n\n"
         "📋 <b>Пример:</b> <code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
-        "Название средства писать <b>не нужно</b> — только список INCI.",
-        reply_markup=get_mode_keyboard(),
+        "Название средства писать <b>не нужно</b> — только список INCI.\n\n"
+        "💡 <i>Если средства нет под рукой — нажмите кнопку ниже, чтобы увидеть пример разбора:</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🧪 Попробовать на примере", callback_data="demo_test_scan")]
+        ]),
         parse_mode="HTML"
     )
 
@@ -2062,7 +2072,19 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "demo_test_scan")
 async def handle_demo_test_scan(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer("Отправьте состав вашего средства в чат 👇", show_alert=True)
+    await callback.answer("Запускаю демо-разбор состава...")
+    sample_inci = (
+        "Aqua, Isododecane, Isopropyl Palmitate, Dimethicone, Helianthus Annuus Seed Oil, "
+        "Centaurea Cyanus Flower Extract, SodiumChloride, Caprylyl/Capryl Glucoside, "
+        "TrisodiumEDTA, Phenoxyethanol, Benzethonium Chloride, CI 60725, CI 61565"
+    )
+    user = db.get_or_create_user(callback.from_user.id)
+    await callback.message.answer(
+        "🧪 <b>Демонстрационный разбор популярного средства:</b>\n\n"
+        f"<code>{sample_inci}</code>",
+        parse_mode="HTML"
+    )
+    await perform_analysis(callback.message, state, user, sample_inci, "wash", is_demo=True)
 
 
 async def _check_bad_bottles_alarm(message: types.Message, telegram_id: int, user_name: str):
@@ -2085,7 +2107,7 @@ async def _check_bad_bottles_alarm(message: types.Message, telegram_id: int, use
         await message.answer(catastrophe_text, reply_markup=catastrophe_kb, parse_mode="HTML")
 
 
-async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str):
+async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str, is_demo: bool = False):
     telegram_id = user["telegram_id"]
     user_name = await _resolve_user_name(message, state, user)
 
@@ -2101,15 +2123,15 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
 
     async with lock:
         user = db.get_or_create_user(telegram_id)
-        if not check_user_limits(user):
+        if not is_demo and not check_user_limits(user):
             db.schedule_retention_notifications(telegram_id)
             await send_paywall(message)
             return
 
-        tariff = get_user_tariff(user)
-        logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}")
+        tariff = "free" if is_demo else get_user_tariff(user)
+        logger.info(f"🟣 perform_analysis → analyze_composition: category={category!r}, tariff={tariff!r}, is_demo={is_demo}")
 
-        if telegram_id not in UNLIMITED_IDS:
+        if not is_demo and telegram_id not in UNLIMITED_IDS:
             limit_status = db.check_rate_limit(telegram_id)
             if limit_status:
                 if limit_status == "day":
@@ -2118,7 +2140,8 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
                     await message.answer("⏳ Слишком много запросов. Пожалуйста, подождите немного.")
                 return
 
-        db.log_scan(telegram_id)
+        if not is_demo:
+            db.log_scan(telegram_id)
         tags = user.get("user_tags", [])
 
         # ⚠️ STATEFUL только для tariff="protocol" (unlimited + реальный 2500). Free/Audit — stateless.
@@ -2156,29 +2179,40 @@ async def perform_analysis(message: types.Message, state: FSMContext, user: dict
                 return
 
             record_id = None
-            if category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
+            if not is_demo and category in ['wash', 'care', 'eyes'] and status in ['good', 'hydrophilic', 'conditional']:
                 record_id = db.save_approved_product(telegram_id, composition, status, category, stage, actives)
 
-            db.save_analysis(telegram_id, composition, clean_text, status)
-            await state.clear()
-            try:
-                db.cancel_single_notification(telegram_id, "no_composition_6h")
-            except Exception:
-                pass
+            if not is_demo:
+                db.save_analysis(telegram_id, composition, clean_text, status)
+                await state.clear()
+                try:
+                    db.cancel_single_notification(telegram_id, "no_composition_6h")
+                except Exception:
+                    pass
 
-            if status in ["bad", "hidden_threat"]:
-                db.increment_bad_bottles(telegram_id)
-            else:
-                db.reset_bad_bottles(telegram_id)
+                if status in ["bad", "hidden_threat"]:
+                    db.increment_bad_bottles(telegram_id)
+                else:
+                    db.reset_bad_bottles(telegram_id)
 
-            if status in ["bad", "hidden_threat"]:
+            if not is_demo and status in ["bad", "hidden_threat"]:
                 await _check_bad_bottles_alarm(message, telegram_id, user_name)
 
             is_unlimited = (telegram_id in UNLIMITED_IDS)
             has_sub = db.has_active_subscription(user)
             is_protocol = is_unlimited or (user.get("scanner_tariff") == "protocol_2500" and has_sub)
 
-            if is_unlimited:
+            if is_demo:
+                await loading_msg.edit_text(clean_text)
+                await message.answer(
+                    "💡 <b>Это был демонстрационный разбор.</b> Ваш бесплатный лимит не списан!\n\n"
+                    "Теперь проверьте свой крем. Выберите категорию средства 👇",
+                    reply_markup=get_category_4_keyboard(),
+                    parse_mode="HTML"
+                )
+                await state.set_state(Form.waiting_for_composition)
+                return
+            elif is_unlimited:
                 await loading_msg.edit_text(clean_text)
                 await message.answer("👑 Режим безлимита: проверок не ограничено.")
             elif not has_sub:
@@ -2632,7 +2666,6 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"Одобренных средств в вашей схеме: {count} шт."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
             [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")]
         ])
         await callback.message.answer(text, reply_markup=kb)
@@ -2640,10 +2673,15 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n"
-            f"Выберите тариф в меню /tariffs, чтобы включить сканер составов."
+            f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n\n"
+            f"Выберите комфортный формат работы:"
         )
-        await callback.message.answer(text)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+        ])
+        await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "trial_99":
         exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y %H:%M')
         text = (
@@ -2651,11 +2689,11 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"Ваши диагностические маркеры: {tags_str}\n"
             f"Тариф: ⚡ Тест-драйв сканера (3 дня)\n"
             f"Активен до: {exp_date}\n\n"
-            f"Продлить на месяц: /tariffs"
+            f"Продлить на 30 дней:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
-            [InlineKeyboardButton(text="💳 Продлить на месяц (1 000 ₽)", callback_data="pay_audit_30")]
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "audit_1000":
@@ -2664,10 +2702,12 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
             f"Тариф: 💳 Аудит (Безлимитный сканер)\n"
-            f"Активен до: {exp_date}"
+            f"Активен до: {exp_date}\n\n"
+            f"Продлить или повысить тариф:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "protocol_2500":
@@ -2681,8 +2721,8 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"Одобренных средств в вашей схеме: {count} шт."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
-            [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")]
+            [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")],
+            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "pdf_4900":
@@ -2694,8 +2734,8 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"Активен до: {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")],
-            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")]
+            [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
+            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     else:
@@ -2706,7 +2746,8 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"Статус доступа: Активен до {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Проверить новое средство", callback_data="btn_check_new")]
+            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await callback.message.answer(text, reply_markup=kb)
 
