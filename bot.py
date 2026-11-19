@@ -2037,7 +2037,7 @@ async def finish_survey(message: types.Message, state: FSMContext):
         "Название средства писать <b>не нужно</b> — только список INCI.\n\n"
         "💡 <i>Если средства нет под рукой — нажмите кнопку ниже, чтобы увидеть пример разбора:</i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🧪 Попробовать на примере", callback_data="demo_test_scan")]
+            [InlineKeyboardButton(text="🧪 Попробовать на примере (Гель Garnier)", callback_data="demo_test_scan")]
         ]),
         parse_mode="HTML"
     )
@@ -2083,13 +2083,16 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
 async def handle_demo_test_scan(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer("Запускаю демо-разбор состава...")
     sample_inci = (
-        "Aqua, Isododecane, Isopropyl Palmitate, Dimethicone, Helianthus Annuus Seed Oil, "
-        "Centaurea Cyanus Flower Extract, SodiumChloride, Caprylyl/Capryl Glucoside, "
-        "TrisodiumEDTA, Phenoxyethanol, Benzethonium Chloride, CI 60725, CI 61565"
+        "Aqua/water, sodium laureth sulfate, coco-betaine, Sodium chloride, glycerin, "
+        "citrus limon fruit extract / lemon fruit extract, Ppg-5-ceteth-20, sodium hydroxide, "
+        "ascorbyl glucoside, citric acid, panthenol, Polyquaternium-7, tocopheryl acetate, "
+        "sodium benzoate, salicylic acid, linalool, Limonene, benzyl salicylate, "
+        "parfum/fragrance. (f.I.L. Z289491/1)."
     )
     user = db.get_or_create_user(callback.from_user.id)
     await callback.message.answer(
-        "🧪 <b>Демонстрационный разбор популярного средства:</b>\n\n"
+        "🧪 <b>Демонстрационный разбор популярного средства:</b>\n"
+        "<i>ГЕЛЬ-ПЕНКА ДЛЯ ЛИЦА GARNIER витамин С</i>\n\n"
         f"<code>{sample_inci}</code>",
         parse_mode="HTML"
     )
@@ -2097,23 +2100,8 @@ async def handle_demo_test_scan(callback: types.CallbackQuery, state: FSMContext
 
 
 async def _check_bad_bottles_alarm(message: types.Message, telegram_id: int, user_name: str):
-    """Триггер «Косметическая катастрофа»: 3 забракованных средства подряд -> оффер на Марию."""
-    fresh_user = db.get_user(telegram_id)
-    if fresh_user and (fresh_user.get("bad_bottles_in_a_row", 0) >= 3):
-        safe_u_name = _escape_html(user_name or "Клиент")
-        catastrophe_text = (
-            f"🚨 <b>ВНИМАНИЕ: КРИТИЧЕСКИЙ РИСК ДЛЯ БАРЬЕРА КОЖИ!</b>\n\n"
-            f"{safe_u_name}, уже 3 проверенных вами средства подряд получили статус отбраковки.\n\n"
-            "Ваша текущая косметика систематически разрушает гидролипидную мантию. "
-            "Продолжать наносить эти средства вслепую — прямой путь к дерматиту, вспышке акне и стойкому куперозу.\n\n"
-            "Вам необходима полная ревизия ухода под контролем эксперта. "
-            "Создательница алгоритма, практикующий косметолог Мария, может собрать для вас индивидуальный протокол или отправить готовый физиологичный бокс 👇"
-        )
-        catastrophe_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💬 Разобрать уход с Марией", url=f"https://t.me/{MARIYA_USERNAME}")],
-            [InlineKeyboardButton(text="📦 Заказать готовый бокс (от 9 000 ₽)", url=f"https://t.me/{MARIYA_USERNAME}")]
-        ])
-        await message.answer(catastrophe_text, reply_markup=catastrophe_kb, parse_mode="HTML")
+    """Отключено по запросу: уведомление о риске для барьера не отправляется."""
+    return
 
 
 async def perform_analysis(message: types.Message, state: FSMContext, user: dict, composition: str, category: str, is_demo: bool = False):
