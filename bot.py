@@ -3201,7 +3201,10 @@ async def main():
 
     # --- ВСТАВЛЯЕМ БЛОК ВЕБХУКА ПРОДАМУС ---
     app = web.Application()
+    app.router.add_get("/", lambda r: web.Response(text="BotHost Webhook Server Running OK"))
+    app.router.add_get("/prodamus_webhook", lambda r: web.Response(text="BotHost Webhook Server Running OK"))
     app.router.add_post("/prodamus_webhook", prodamus_webhook)
+    app.router.add_post("/", prodamus_webhook)
     runner = web.AppRunner(app)
     await runner.setup()
     
