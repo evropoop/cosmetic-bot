@@ -342,26 +342,23 @@ def get_mariya_payment_keyboard(user_name: str, user_id: int):
 
 
 PAYWALL_TEXT = (
-    "Бесплатный лимит исчерпан. По двум банкам архитектуру не выстроить, а наносить непроверенные средства на вашу кожу сейчас небезопасно.\n\n"
-    "Выбирайте комфортный формат ниже, и давайте соберем ваш идеальный уход:\n\n"
-    "⚡ <b>ТЕСТ-ДРАЙВ СКАНЕРА (99 ₽ / 3 дня)</b>\n"
-    "▪️ Быстрый старт: проверьте всю текущую косметичку на полке прямо сейчас.\n"
-    "▪️ Безлимитный сканер: выявит скрытые угрозы, комедогенные базы и пустышки.\n\n"
-    "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b>\n"
-    "▪️ 33 рубля в день — надежная защита кожи и бюджета на 30 дней.\n"
-    "▪️ Проверка любых покупок в Золотом Яблоке, WB и Ozon до оплаты.\n\n"
-    "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b>\n"
-    "▫️ Интеллектуальная память: алгоритм запоминает и анализирует весь ваш уход целиком.\n"
-    "▫️ Матрица безопасности: вычисляет конфликты активов и страхует от ожогов.\n"
-    "▫️ Архитектура ухода: показывает, каких позиций не хватает для чистой кожи.\n\n"
+    "<b>Выберите формат доступа:</b>\n\n"
+    "⚡ <b>Тест-драйв сканера (3 дня) — 99 ₽</b>\n"
+    "• Безлимитная проверка всех ваших банок на 3 дня.\n"
+    "• Только сканер, без доступа в закрытый клуб.\n\n"
+    "💳 <b>Базовый + Закрытый клуб (30 дней) — 1 000 ₽ (хит)</b>\n"
+    "• Безлимит на проверки в ЗЯ, WB и Ozon на 30 дней.\n"
+    "• Доступ в закрытый клуб Skin Protokol: готовые рабочие связки, ссылки на магазины со спецпредложениями, «черный список» пустышек и обратная связь.\n\n"
+    "💎 <b>Полный протокол + Клуб (30 дней) — 2 500 ₽</b>\n"
+    "• Всё, что в «Базовом» + Роман запоминает всю вашу косметичку, находит конфликты активов (чтобы не сжечь кожу) и показывает, чего не хватает в уходе.\n\n"
     "💡 <i>Одна случайно купленная сыворотка-пустышка стоит от 2 500 ₽. Бот окупает себя с первой же забракованной банки.</i>"
 )
 
 WARMUP_TEXT = (
     "🤖 Роман Андреевич: В будущем вы сможете продолжить работу со мной в удобном формате:\n\n"
-    "⚡ <b>ТЕСТ-ДРАЙВ (99 ₽ / 3 дня)</b> — разобрать всю текущую косметичку.\n"
-    "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b> — 33 ₽/день за безлимитную защиту от ошибок.\n"
-    "💎 <b>СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b> — ведение и архитектура всей системы ухода.\n\n"
+    "⚡ <b>Тест-драйв сканера (3 дня) — 99 ₽</b> — только сканер, без закрытого клуба.\n"
+    "💳 <b>Базовый + Закрытый клуб (30 дней) — 1 000 ₽</b> — безлимит + закрытый клуб Skin Protokol.\n"
+    "💎 <b>Полный протокол + Клуб (30 дней) — 2 500 ₽</b> — ведение всей косметички + закрытый клуб.\n\n"
     "🎁 Но у вас осталась еще 1 бесплатная попытка! Какую категорию проверим следующей?"
 )
 
@@ -376,8 +373,8 @@ async def send_paywall(message: types.Message):
         PAYWALL_TEXT,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")],
             [InlineKeyboardButton(text="💬 Уже оплатили? Написать Марии", url=url_q)]
         ]),
         parse_mode="HTML"
@@ -642,8 +639,8 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📦 Заказать бокс / протокол Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
             [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
-            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
     elif notif_type == "no_composition_6h":
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -652,13 +649,13 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
         ])
     elif notif_type == "renewal_audit":
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Продлить Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Перейти на Полный протокол (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
     elif notif_type == "renewal_trial":
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
     elif notif_type == "renewal_protocol":
         kb = build_stage_keyboard(telegram_id)
@@ -666,13 +663,13 @@ async def _send_retention_notification(telegram_id: int, notif_type: str):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📦 Заказать бокс от Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
             [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
-            [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1000 ₽", callback_data="pay_audit_30")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
     elif notif_type in ["reactivation_30d", "reactivation_75d"]:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
-            [InlineKeyboardButton(text="💳 Продлить Аудит — 1000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Продлить Сборку — 2500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
     else:
         # Остальные retention (2h..150d) — стандартные тарифы с триалом
@@ -994,27 +991,27 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
             f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n\n"
-            f"Выберите комфортный формат работы:"
+            f"<b>Выберите формат доступа:</b>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
-        await message.answer(text, reply_markup=kb)
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
     elif user.get("scanner_tariff") == "trial_99":
         exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y %H:%M')
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: ⚡ Тест-драйв сканера (3 дня)\n"
+            f"Тариф: ⚡ Тест-драйв сканера (3 дня, без клуба)\n"
             f"Активен до: {exp_date}\n\n"
-            f"Продлить на 30 дней:"
+            f"Продлить на 30 дней с доступом в закрытый клуб:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1023,13 +1020,13 @@ async def cmd_profile(message: types.Message, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: 💳 Аудит (Безлимитный сканер)\n"
+            f"Тариф: 💳 Базовый + Закрытый клуб\n"
             f"Активен до: {exp_date}\n\n"
             f"Продлить или повысить тариф:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
-            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Продлить Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1039,13 +1036,13 @@ async def cmd_profile(message: types.Message, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: 💎 Сборка протокола\n"
+            f"Тариф: 💎 Полный протокол + Закрытый клуб\n"
             f"Активен до: {exp_date}\n"
             f"Одобренных средств в вашей схеме: {count} шт."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🗂 Моя собранная база (Просмотр / Удаление)", callback_data="btn_my_base")],
-            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")],
+            [InlineKeyboardButton(text="💎 Продлить Полный протокол (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1054,12 +1051,12 @@ async def cmd_profile(message: types.Message, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: 👑 VIP PDF-протокол + Сканер\n"
+            f"Тариф: 👑 VIP PDF-протокол + Закрытый клуб\n"
             f"Активен до: {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
-            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💎 Продлить Полный протокол (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1071,8 +1068,8 @@ async def cmd_profile(message: types.Message, state: FSMContext):
             f"Статус доступа: Активен до {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await message.answer(text, reply_markup=kb)
 
@@ -1138,26 +1135,12 @@ async def handle_back_to_profile(callback: types.CallbackQuery, state: FSMContex
 async def cmd_tariffs(message: types.Message, state: FSMContext = None):
     if state:
         await state.clear()
-    text = (
-        "🤖 Роман Андреевич: Выберите комфортный формат работы:\n\n"
-        "⚡ <b>ТЕСТ-ДРАЙВ СКАНЕРА (99 ₽ / 3 дня)</b>\n"
-        "▪️ Быстрый тест: разберите всю текущую косметичку на полке прямо сейчас.\n"
-        "▪️ Безлимитный сканер: выявит скрытые угрозы, комедогенные базы и пустышки.\n\n"
-        "💳 <b>БАЗОВЫЙ АУДИТ (1 000 ₽ / 30 дней)</b>\n"
-        "▪️ 33 рубля в день — надежная защита кожи и бюджета на 30 дней.\n"
-        "▪️ Безлимитная проверка любых покупок в Золотом Яблоке, WB и Ozon до оплаты.\n\n"
-        "💎 <b>ПОЛНОЦЕННОЕ ВЕДЕНИЕ И СБОРКА ПРОТОКОЛА (2 500 ₽ / 30 дней)</b>\n"
-        "▫️ Интеллектуальная память: алгоритм запоминает и анализирует весь ваш уход целиком.\n"
-        "▫️ Матрица безопасности: вычисляет конфликты активов и страхует от ожогов.\n"
-        "▫️ Архитектура ухода: показывает, каких позиций не хватает для чистой кожи.\n\n"
-        "💡 <i>Одна случайно купленная сыворотка-пустышка стоит от 2 500 ₽. Бот окупает себя с первой же забракованной банки.</i>"
-    )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
-        [InlineKeyboardButton(text="💳 Аудит (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
-        [InlineKeyboardButton(text="💎 Сборка протокола (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
+        [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+        [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
     ])
-    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await message.answer(PAYWALL_TEXT, reply_markup=kb, parse_mode="HTML")
 
 
 @dp.message(F.text.startswith("/start pay_success_"))
@@ -1247,11 +1230,11 @@ async def handle_payment_return(message: types.Message):
             new_expires = db.update_user_subscription(telegram_id, tariff_type, 30)
             db.cancel_retention_notifications(telegram_id)
             db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
-            _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
+            _label = "Базовый + Клуб" if tariff_type == "audit_1000" else "Полный протокол + Клуб"
             _exp_str = datetime.fromisoformat(new_expires).strftime("%d.%m.%Y")
             await message.answer(
                 f"🎉 Оплата успешно получена!\n\n"
-                f"Доступ к алгоритму продлён и активен до <b>{_exp_str}</b>.\n"
+                f"Доступ продлён и активен до <b>{_exp_str}</b>.\n"
                 f"Проверьте свой профиль командой /profile или сразу отправьте состав средства 👇",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔍 Проверить средство", callback_data="btn_check_new")]
@@ -1259,14 +1242,15 @@ async def handle_payment_return(message: types.Message):
                 parse_mode="HTML"
             )
 
-        # Выдача одноразовой ссылки в закрытый канал (для всех тарифов)
-        _u = db.get_user(telegram_id)
-        if _u and _u.get("scanner_expires_at"):
-            try:
-                _exp = datetime.fromisoformat(_u["scanner_expires_at"])
-                await grant_channel_access(telegram_id, _label, _exp)
-            except Exception as e:
-                logger.error(f"grant_channel_access (return) failed: {e}")
+        # Выдача одноразовой ссылки в закрытый клуб (ТОЛЬКО для тарифов с клубом, без тест-драйва)
+        if tariff_type != "trial_99":
+            _u = db.get_user(telegram_id)
+            if _u and _u.get("scanner_expires_at"):
+                try:
+                    _exp = datetime.fromisoformat(_u["scanner_expires_at"])
+                    await grant_channel_access(telegram_id, _label, _exp)
+                except Exception as e:
+                    logger.error(f"grant_channel_access (return) failed: {e}")
 
     except Exception as e:
         logger.error(f"Ошибка при возврате с оплаты: {e}")
@@ -1507,8 +1491,8 @@ async def pay_pdf_4900(callback: types.CallbackQuery):
 
 _PRODUCT_NAMES = {
     "trial_99": "Тест-драйв сканера (3 дня)",
-    "audit_1000": "Базовый аудит (30 дней)",
-    "protocol_2500": "Сборка протокола (30 дней)",
+    "audit_1000": "Базовый + Закрытый клуб (30 дней)",
+    "protocol_2500": "Полный протокол + Клуб (30 дней)",
     "pdf_4900": "Персональный PDF-протокол",
 }
 
@@ -1551,8 +1535,9 @@ async def pay_trial_99(callback: types.CallbackQuery):
     link = await generate_prodamus_link(telegram_id, 99, "trial_99")
     db.schedule_single_notification(telegram_id, "abandoned_cart", datetime.now() + timedelta(minutes=35))
     await callback.message.answer(
-        "⚡ <b>Тест-драйв сканера (99 ₽ / 3 дня)</b>\n\n"
-        "Проверьте всю текущую косметичку на полке прямо сейчас без ограничений.\n"
+        "⚡ <b>Тест-драйв сканера (3 дня) — 99 ₽</b>\n\n"
+        "• Безлимитная проверка всех ваших банок на 3 дня.\n"
+        "• Только сканер, без доступа в закрытый клуб.\n\n"
         "После успешной оплаты доступ активируется автоматически 👇",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Оплатить 99 ₽", url=link)]
@@ -1568,8 +1553,9 @@ async def pay_audit_30(callback: types.CallbackQuery):
     link = await generate_prodamus_link(telegram_id, 1000, "audit_1000")
     db.schedule_single_notification(telegram_id, "abandoned_cart", datetime.now() + timedelta(minutes=35))
     await callback.message.answer(
-        "💳 <b>Тариф «Базовый аудит» (1000 ₽ / 30 дней)</b>\n\n"
-        "33 рубля в день за безлимитную защиту от ошибок и спонтанных покупок.\n"
+        "💳 <b>Базовый + Закрытый клуб (30 дней) — 1 000 ₽ (хит)</b>\n\n"
+        "• Безлимит на проверки в ЗЯ, WB и Ozon на 30 дней.\n"
+        "• Доступ в закрытый клуб Skin Protokol: готовые рабочие связки, ссылки на магазины со спецпредложениями, «черный список» пустышек и обратная связь.\n\n"
         "Нажмите кнопку ниже для перехода к оплате:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате 1 000 ₽", url=link)]
@@ -1584,8 +1570,8 @@ async def pay_restore_90(callback: types.CallbackQuery):
     link = await generate_prodamus_link(telegram_id, 2500, "protocol_2500")
     db.schedule_single_notification(telegram_id, "abandoned_cart", datetime.now() + timedelta(minutes=35))
     await callback.message.answer(
-        "💎 <b>Тариф «Сборка протокола» (2500 ₽ / 30 дней)</b>\n\n"
-        "Интеллектуальная память + матрица конфликтов + архитектура всей косметички.\n"
+        "💎 <b>Полный протокол + Клуб (30 дней) — 2 500 ₽</b>\n\n"
+        "• Всё, что в «Базовом» + Роман запоминает всю вашу косметичку, находит конфликты активов (чтобы не сжечь кожу) и показывает, чего не хватает в уходе.\n\n"
         "Нажмите кнопку ниже для перехода к оплате:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате 2 500 ₽", url=link)]
@@ -2671,26 +2657,26 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
             f"Статус доступа: Неактивен (Использовано бесплатных проверок: {user.get('free_scans_used', 0)} из 2).\n\n"
-            f"Выберите комфортный формат работы:"
+            f"<b>Выберите формат доступа:</b>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⚡ Тест-драйв (3 дня) — 99 ₽", callback_data="pay_trial_99")],
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
-        await callback.message.answer(text, reply_markup=kb)
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     elif user.get("scanner_tariff") == "trial_99":
         exp_date = datetime.fromisoformat(user["scanner_expires_at"]).strftime('%d.%m.%Y %H:%M')
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: ⚡ Тест-драйв сканера (3 дня)\n"
+            f"Тариф: ⚡ Тест-драйв сканера (3 дня, без клуба)\n"
             f"Активен до: {exp_date}\n\n"
-            f"Продлить на 30 дней:"
+            f"Продлить на 30 дней с доступом в закрытый клуб:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")],
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")],
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "audit_1000":
@@ -2698,13 +2684,13 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: 💳 Аудит (Безлимитный сканер)\n"
+            f"Тариф: 💳 Базовый + Закрытый клуб\n"
             f"Активен до: {exp_date}\n\n"
             f"Продлить или повысить тариф:"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 Перейти на Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
-            [InlineKeyboardButton(text="💳 Продлить Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Продлить Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "protocol_2500":
@@ -2713,13 +2699,13 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: 💎 Сборка протокола\n"
+            f"Тариф: 💎 Полный протокол + Закрытый клуб\n"
             f"Активен до: {exp_date}\n"
             f"Одобренных средств в вашей схеме: {count} шт."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🗂 Моя собранная база", callback_data="btn_my_base")],
-            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💎 Продлить Полный протокол (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     elif user.get("scanner_tariff") == "pdf_4900":
@@ -2727,12 +2713,12 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
         text = (
             f"👤 Имя: {user_name}\n"
             f"Ваши диагностические маркеры: {tags_str}\n"
-            f"Тариф: 👑 VIP PDF-протокол + Сканер\n"
+            f"Тариф: 👑 VIP PDF-протокол + Закрытый клуб\n"
             f"Активен до: {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💬 Перейти к Марии", url=f"https://t.me/{MARIYA_USERNAME}")],
-            [InlineKeyboardButton(text="💎 Продлить Сборку протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")]
+            [InlineKeyboardButton(text="💎 Продлить Полный протокол (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")]
         ])
         await callback.message.answer(text, reply_markup=kb)
     else:
@@ -2743,8 +2729,8 @@ async def menu_profile(callback: types.CallbackQuery, state: FSMContext):
             f"Статус доступа: Активен до {exp_date}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 Сборка протокола (30 дней) — 2 500 ₽", callback_data="pay_restore_90")],
-            [InlineKeyboardButton(text="💳 Аудит (30 дней) — 1 000 ₽", callback_data="pay_audit_30")]
+            [InlineKeyboardButton(text="💎 Полный протокол + Клуб (30 дн.) — 2 500 ₽", callback_data="pay_restore_90")],
+            [InlineKeyboardButton(text="💳 Базовый + Клуб (30 дн.) — 1 000 ₽", callback_data="pay_audit_30")]
         ])
         await callback.message.answer(text, reply_markup=kb)
 
@@ -3180,7 +3166,7 @@ async def prodamus_webhook(request: web.Request):
                         new_expires = db.update_user_subscription(telegram_id, tariff_type, 30)
                         db.cancel_retention_notifications(telegram_id)
                         db.schedule_renewal_notification(telegram_id, tariff_type, new_expires)
-                        _label = "Аудит" if tariff_type == "audit_1000" else "Сборка протокола"
+                        _label = "Базовый + Клуб" if tariff_type == "audit_1000" else "Полный протокол + Клуб"
                         try:
                             _exp_str = datetime.fromisoformat(new_expires).strftime("%d.%m.%Y")
                             await bot.send_message(
@@ -3191,13 +3177,15 @@ async def prodamus_webhook(request: web.Request):
                         except Exception:
                             pass
 
-                    _u = db.get_user(telegram_id)
-                    if _u and _u.get("scanner_expires_at"):
-                        try:
-                            _exp = datetime.fromisoformat(_u["scanner_expires_at"])
-                            await grant_channel_access(telegram_id, _label, _exp)
-                        except Exception as e:
-                            logger.error(f"grant_channel_access (webhook) failed: {e}")
+                    # Выдача одноразовой ссылки в закрытый клуб (ТОЛЬКО для тарифов с клубом, без тест-драйва)
+                    if tariff_type != "trial_99":
+                        _u = db.get_user(telegram_id)
+                        if _u and _u.get("scanner_expires_at"):
+                            try:
+                                _exp = datetime.fromisoformat(_u["scanner_expires_at"])
+                                await grant_channel_access(telegram_id, _label, _exp)
+                            except Exception as e:
+                                logger.error(f"grant_channel_access (webhook) failed: {e}")
                 
         return web.Response(text="success")
     except Exception as e:
