@@ -292,7 +292,6 @@ CHECKUP_ARTICLE_URL = "https://telegra.ph/Kak-projti-polnyj-chekap-na-50-pokazat
 def get_mode_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🔍 Проверить новое средство")],
-        [KeyboardButton(text=CHECKUP_BTN_TEXT)],
         [KeyboardButton(text="📋 Меню")]
     ], resize_keyboard=True, is_persistent=True)
 
@@ -1916,124 +1915,28 @@ async def finish_survey(message: types.Message, state: FSMContext):
 
     db.schedule_retention_notifications(telegram_id)
 
-    # =========================================================
-    # СООБЩЕНИЕ 1
-    # =========================================================
-    await message.answer("📊 Диагностика завершена.")
-
-    # =========================================================
-    # СООБЩЕНИЕ 2
-    # Начинается СТРОГО с f"🤖 {user_name},\n\n"
-    # Абзацы добавляются по условиям из tags, между абзацами \n\n
-    # =========================================================
-    diagnosis_text = f"🤖 {user_name},\n\n"
-
-    # === БЛОК 1: КРАСНЫЕ ФЛАГИ ===
-    if any(t in tags for t in ["medicine", "medicine_skin"]):
-        diagnosis_text += (
-            "❗️ Вижу по анамнезу дерматологический диагноз. Напоминаю: я химик-технолог, "
-            "а не врач. Моя компетенция — анализ химических формул и выстраивание безопасного "
-            "косметического фундамента, который не спровоцирует клиническое обострение.\n\n"
-        )
-
-    if "pregnancy" in tags:
-        diagnosis_text += (
-            "🤰 Фиксирую статус беременности/лактации. В мой алгоритм внесен строгий запрет "
-            "на тератогенные активы (ретиноиды) и салициловую кислоту. Мы соберем максимально "
-            "безопасный протокол.\n\n"
-        )
-
-    allergy_names = [t[len("allergy_"):] for t in tags if t.startswith("allergy_")]
-    if allergy_names:
-        allergy_text = ", ".join(allergy_names)
-        diagnosis_text += (
-            f"🛑 В базу данных внесен строгий стоп-лист на ваш аллерген: {allergy_text}. "
-            "Любой продукт с его содержанием будет автоматически блокироваться матрицей.\n\n"
-        )
-    # === END БЛОК 1 ===
-
-    # === БЛОК 2: БАЗИС (СТРОГО ОДНО СОВПАДЕНИЕ) ===
-    if "fat_compensatory" in tags:
-        diagnosis_text += (
-            "💧 Фиксируем критическое нарушение гидролипидной мантии. Сухость провоцирует "
-            "компенсаторную гиперсекрецию себума — кожа пытается восстановить защитный барьер "
-            "через усиленную работу сальных желез. Наша стратегия — восстановить барьер "
-            "физиологичными эмолентами, нормализовать трансэпидермальную потерю влаги и "
-            "разорвать этот замкнутый круг.\n\n"
-        )
-    elif any(t in tags for t in ["barrier_broken", "dry", "peeling"]):
-        diagnosis_text += (
-            "💧 Фиксируем дефицит собственных липидов и уязвимость барьера. Эпидермис теряет "
-            "влагу и беззащитен перед внешними триггерами. Наша первоочередная стратегия — "
-            "нормализовать трансэпидермальную потерю влаги и восстановить липидный каркас, "
-            "категорически исключив агрессивные ПАВы.\n\n"
-        )
-    elif any(t in tags for t in ["problem", "seboprofit", "pores"]):
-        diagnosis_text += (
-            "🌿 Фиксируем профицит себума и склонность к гиперкератозу. Наша цель — наладить "
-            "качественный отток кожного сала, предотвратить окисление комедонов и снизить "
-            "воспалительный потенциал, не допуская разрушения защитного барьера жестким умыванием.\n\n"
-        )
-    elif "normal" in tags:
-        diagnosis_text += (
-            "⚖️ Фиксируем нормальное состояние эпидермиса. Гидролипидная мантия функционирует "
-            "стабильно, барьерные структуры не нарушены, компенсаторные реакции отсутствуют. "
-            "Наша стратегия — поддерживать физиологичный баланс и предотвращать внешний стресс "
-            "через грамотный подбор химических составов.\n\n"
-        )
-    # === END БЛОК 2 ===
-
-    # === БЛОК 3: СОСУДЫ ===
-    if any(t in tags for t in ["reactive", "couperose"]):
-        diagnosis_text += (
-            "🩸 Сосудистая сетка и реактивность указывают на хрупкость капилляров и локальный "
-            "иммунодефицит кожи. Мы исключим агрессивные триггеры, жесткие скрабы и "
-            "сфокусируемся на успокаивающих компонентах.\n\n"
-        )
-    # === END БЛОК 3 ===
-
-    # === БЛОК 4: ЦЕЛЕВЫЕ ЗАДАЧИ (с проверкой беременности) ===
-    if any(t in tags for t in ["age", "pigment"]):
-        if "pregnancy" in tags:
-            diagnosis_text += (
-                "🎯 Также я зафиксировал ваш запрос на работу с тоном и клеточной стимуляцией. "
-                "Учитывая ваше положение, мы выстроим рутину исключительно на безопасных активах "
-                "(витамин С, пептиды, мягкие энзимы), которые разрешены в этот период и не имеют "
-                "системного действия на организм.\n\n"
-            )
-        else:
-            diagnosis_text += (
-                "🎯 Также я зафиксировал ваш запрос на работу с тоном и клеточной стимуляцией. "
-                "Мы выстроим рутину так, чтобы безопасно внедрить стимулирующие активы "
-                "(кислоты, витамин С, ретиноиды), когда ваш роговой слой будет к этому полностью готов.\n\n"
-            )
-    # === END БЛОК 4 ===
-    
     logger.info(f"📊 FUNNEL [diagnostics_complete] user={telegram_id}")
-    await message.answer(diagnosis_text.strip(), reply_markup=get_mode_keyboard())
+
+    # Сообщение 1: сразу после 6-го вопроса анкеты (без расшифровки-диагноза)
+    msg_1 = (
+        f"✅ {user_name}, профиль твоей кожи сохранён — теперь Роман будет анализировать средства именно под тебя. "
+        "Давай прямо сейчас проверим, что стоит у тебя на полке."
+    )
+    await message.answer(msg_1, reply_markup=get_mode_keyboard())
 
     await asyncio.sleep(0.5)
-    await message.answer(
-        "<b>Что делать сейчас:</b>\n"
-        "1. Открой карточку своего средства на Золотом Яблоке, Ozon или WB\n"
-        "2. Найди раздел «Состав» / «Ingredients» (мелкий шрифт на упаковке)\n"
-        "3. Сфотографируй или скопируй список компонентов\n"
-        "4. Отправь сюда в чат\n\n"
-        "📋 <b>Пример:</b> <code>Aqua, Glycerin, Niacinamide, Phenoxyethanol</code>\n\n"
-        "Название средства писать <b>не нужно</b> — только список INCI.\n\n"
-        "💡 <i>Если средства нет под рукой — нажмите кнопку ниже, чтобы увидеть пример разбора:</i>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🧪 Попробовать на примере (Гель Garnier)", callback_data="demo_test_scan")]
-        ]),
-        parse_mode="HTML"
-    )
 
-    try:
-        await message.answer_video(video=MAIN_VIDEO_ID)
-    except NameError:
-        logger.warning("MAIN_VIDEO_ID не определён — видео не отправлено")
-    except Exception as e:
-        logger.warning(f"Не удалось отправить основное видео ({e})")
+    # Сообщение 2: условия проверок и кнопки
+    msg_2 = (
+        "У тебя есть 2 бесплатные проверки. Просто сфотографируй обратную сторону любой банки (где указан состав - INCI) "
+        "и отправь фото прямо сюда 👇 \n"
+        "Нет банки под рукой? Скопируй состав (INCI) с WB, Ozon или ЗЯ и вставь текстом."
+    )
+    kb_post_survey = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧪 Пример разбора (гель Garnier)", callback_data="demo_test_scan")],
+        [InlineKeyboardButton(text="🎥 Как найти состав? (видео 1 мин)", callback_data="how_to_find_inci_video")]
+    ])
+    await message.answer(msg_2, reply_markup=kb_post_survey)
 
     try:
         from datetime import timedelta as _td
@@ -2067,6 +1970,7 @@ async def back_to_scanner(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "demo_test_scan")
 async def handle_demo_test_scan(callback: types.CallbackQuery, state: FSMContext):
+    logger.info(f"📊 FUNNEL [example_garnier_click] user={callback.from_user.id}")
     await callback.answer("Запускаю демо-разбор состава...")
     sample_inci = (
         "Aqua/water, sodium laureth sulfate, coco-betaine, Sodium chloride, glycerin, "
@@ -2083,6 +1987,22 @@ async def handle_demo_test_scan(callback: types.CallbackQuery, state: FSMContext
         parse_mode="HTML"
     )
     await perform_analysis(callback.message, state, user, sample_inci, "wash", is_demo=True)
+
+
+@dp.callback_query(F.data == "how_to_find_inci_video")
+async def handle_how_to_find_inci_video(callback: types.CallbackQuery):
+    await callback.answer()
+    logger.info(f"📊 FUNNEL [how_to_find_inci_video_click] user={callback.from_user.id}")
+    try:
+        await callback.message.answer_video(
+            video=MAIN_VIDEO_ID,
+            caption="🎥 Видео-инструкция: как найти и сфотографировать состав (INCI) на упаковке или маркетплейсе."
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось отправить видео ({e})")
+        await callback.message.answer(
+            "❌ Не удалось загрузить видео. Просто сфотографируйте мелкий шрифт с составом на обратной стороне банки или скопируйте его с сайта маркетплейса."
+        )
 
 
 async def _check_bad_bottles_alarm(message: types.Message, telegram_id: int, user_name: str):
